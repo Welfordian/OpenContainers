@@ -74,7 +74,18 @@ export class IncomingMessage extends Readable {
     this.headers = Object.fromEntries(request.headers ?? []);
     this.statusCode = request.statusCode;
     this.statusMessage = request.statusMessage;
-    this.socket = { remoteAddress: "127.0.0.1" };
+    if (request.body && !this.headers["content-length"]) {
+      const bytes = typeof request.body === "string" ? new TextEncoder().encode(request.body) : new Uint8Array(request.body);
+      this.headers["content-length"] = String(bytes.byteLength);
+    }
+    this.socket = {
+      remoteAddress: "127.0.0.1",
+      remotePort: 0,
+      localAddress: "127.0.0.1",
+      localPort: request.port,
+      encrypted: false
+    };
+    this.connection = this.socket;
     if (request.body) queueMicrotask(() => {
       this.push(typeof request.body === "string" ? request.body : RuntimeBuffer.from(request.body));
       this.push(null);
@@ -144,7 +155,11 @@ export class ClientRequest extends Writable {
       this.#callback?.(incoming);
       this.emit("response", incoming);
     } catch (error) {
-      this.emit("error", error);
+      try {
+        this.emit("error", error);
+      } catch (emitError) {
+        reportVirtualError(this.#process, emitError);
+      }
     } finally {
       queueMicrotask(() => this.#process.__welfordUnref?.());
     }
@@ -163,13 +178,19 @@ export class ClientRequest extends Writable {
   }
 
   async #dispatchExternal(body) {
+    const url = `${this.protocol}//${this.host}${this.port && !isDefaultPort(this.protocol, this.port) ? `:${this.port}` : ""}${this.path}`;
+    const requestUrl = new URL(url);
+    if (isHostPageOrigin(requestUrl)) {
+      throw Object.assign(new Error(`Host application request blocked: ${requestUrl.href}`), {
+        code: "ERR_WELFORD_HOST_ORIGIN_BLOCKED"
+      });
+    }
     if (this.#kernel.allowExternalNetwork !== true) {
-      throw Object.assign(new Error(`External network request blocked: ${this.protocol}//${this.host}:${this.port}${this.path}`), {
+      throw Object.assign(new Error(`External network request blocked: ${requestUrl.href}`), {
         code: "ERR_WELFORD_EXTERNAL_NETWORK_BLOCKED"
       });
     }
-    const url = `${this.protocol}//${this.host}${this.port && !isDefaultPort(this.protocol, this.port) ? `:${this.port}` : ""}${this.path}`;
-    const response = await fetch(url, {
+    const response = await fetch(requestUrl.href, {
       method: this.method,
       headers: this.headers,
       body: body.byteLength ? body : undefined
@@ -194,6 +215,9 @@ export class ServerResponse extends Writable {
     this.statusCode = 200;
     this.statusMessage = "OK";
     this.headers = new Map();
+    this.headersSent = false;
+    this.writableEnded = false;
+    this.finished = false;
     this.#chunks = chunks;
     this.#resolveResponse = resolveResponse;
   }
@@ -208,6 +232,18 @@ export class ServerResponse extends Writable {
 
   getHeader(name) {
     return this.headers.get(String(name).toLowerCase());
+  }
+
+  removeHeader(name) {
+    this.headers.delete(String(name).toLowerCase());
+  }
+
+  hasHeader(name) {
+    return this.headers.has(String(name).toLowerCase());
+  }
+
+  getHeaders() {
+    return Object.fromEntries(this.headers.entries());
   }
 
   writeHead(statusCode, statusMessageOrHeaders, headers) {
@@ -225,6 +261,9 @@ export class ServerResponse extends Writable {
     if (this.#ended) return;
     if (chunk !== undefined) this.write(chunk, encoding);
     this.#ended = true;
+    this.headersSent = true;
+    this.writableEnded = true;
+    this.finished = true;
     const size = this.#chunks.reduce((total, part) => total + part.byteLength, 0);
     const body = new Uint8Array(size);
     let offset = 0;
@@ -252,6 +291,7 @@ export function createHttpBuiltin({ kernel, process }) {
     STATUS_CODES,
     createServer(listener) {
       const server = new EventEmitter();
+      if (listener) server.on("request", listener);
       server.listening = false;
       server.listen = (port = 0, hostOrCallback, maybeCallback) => {
         const callback = typeof hostOrCallback === "function" ? hostOrCallback : maybeCallback;
@@ -261,14 +301,14 @@ export function createHttpBuiltin({ kernel, process }) {
           pid: process.pid,
           port,
           host,
-          handler: async (request) => new Promise((resolve, reject) => {
+          handler: async (request) => new Promise((resolve) => {
             const req = new IncomingMessage(request);
             const res = new ServerResponse(resolve);
             try {
-              listener?.(req, res);
               server.emit("request", req, res);
             } catch (error) {
-              reject(error);
+              reportVirtualError(process, error);
+              if (!res.writableEnded) resolve(virtualServerErrorResponse(error));
             }
           })
         });
@@ -281,10 +321,15 @@ export function createHttpBuiltin({ kernel, process }) {
               url: request.path,
               headers: [["upgrade", "websocket"]]
             });
-            if (server.listenerCount("upgrade")) {
-              server.emit("upgrade", req, socket, RuntimeBuffer.alloc(0));
-            } else {
-              server.emit("websocket", socket, req);
+            try {
+              if (server.listenerCount("upgrade")) {
+                server.emit("upgrade", req, socket, RuntimeBuffer.alloc(0));
+              } else {
+                server.emit("websocket", socket, req);
+              }
+            } catch (error) {
+              reportVirtualError(process, error);
+              socket.close?.(1011, "Unhandled virtual server error");
             }
           }
         });
@@ -380,10 +425,46 @@ function normalizeResponseBody(body) {
   return new Uint8Array(body);
 }
 
+function reportVirtualError(process, error) {
+  try {
+    process.stderr?.write?.(`${formatErrorForDiagnostics(error)}\n`);
+  } catch (_) {
+    // Diagnostics must never escape the virtual process boundary.
+  }
+  process.exitCode = 1;
+}
+
+function virtualServerErrorResponse(error) {
+  const message = error?.message ?? String(error);
+  return {
+    status: 500,
+    statusText: "Internal Server Error",
+    headers: [
+      ["content-type", "text/plain; charset=utf-8"],
+      ["x-welford-error", "unhandled-virtual-server-error"]
+    ],
+    body: new TextEncoder().encode(`Unhandled virtual server error: ${message}\n`)
+  };
+}
+
+function formatErrorForDiagnostics(error) {
+  return error?.stack ?? error?.message ?? String(error);
+}
+
 function isVirtualLocalhost(host) {
   return ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].includes(String(host));
 }
 
 function isDefaultPort(protocol, port) {
   return (protocol === "http:" && Number(port) === 80) || (protocol === "https:" && Number(port) === 443);
+}
+
+function isHostPageOrigin(url) {
+  const origin = globalThis.location?.origin;
+  if (!origin || origin === "null") return false;
+  try {
+    return url.origin === new URL(origin).origin;
+  } catch (_) {
+    return false;
+  }
 }

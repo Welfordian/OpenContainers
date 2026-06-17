@@ -61,12 +61,14 @@ export class ProcessWorkerHost extends EventEmitter {
         this.descriptor.onIdle = () => {
           if (!this.shouldStayAlive()) {
             this.descriptor.onIdle = null;
-            resolve(status ?? 0);
+            resolve(this.descriptor.exitCode ?? status ?? 0);
           }
         };
       });
     }
+    status = this.descriptor.exitCode ?? status ?? 0;
     this.descriptor.status = "exited";
+    this.runCleanupTasks();
     this.postMessage({ type: "exit", requestId: id, pid: this.descriptor.pid, status });
     this.reply(id, { ok: true, status });
   }
@@ -82,7 +84,18 @@ export class ProcessWorkerHost extends EventEmitter {
   signal(signal) {
     if (!this.descriptor) return;
     this.descriptor.status = "killed";
+    this.runCleanupTasks();
     this.postMessage({ type: "signal", pid: this.descriptor.pid, signal });
+  }
+
+  runCleanupTasks() {
+    const cleanupTasks = [...(this.descriptor?.cleanupTasks ?? [])];
+    this.descriptor?.cleanupTasks?.clear();
+    for (const cleanup of cleanupTasks) {
+      try {
+        cleanup();
+      } catch (_) {}
+    }
   }
 
   stream(name) {

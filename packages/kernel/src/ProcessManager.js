@@ -86,18 +86,19 @@ export class ProcessManager {
       } else {
         throw Object.assign(new Error(`Unsupported command: ${command}`), { code: "ENOENT" });
       }
+      const finalStatus = () => process.descriptor.exitCode ?? status ?? 0;
       if ((status ?? 0) === 0 && (this.kernel.portManager.hasPid(process.pid) || this.kernel.net.hasPid(process.pid) || process.descriptor.refCount > 0)) {
         process.descriptor.status = "running";
         process.descriptor.onIdle = () => {
           if (!this.kernel.portManager.hasPid(process.pid) && !this.kernel.net.hasPid(process.pid) && process.descriptor.refCount === 0) {
             process.descriptor.onIdle = null;
-            process.finish(status ?? 0);
+            process.finish(finalStatus());
             this.kernel.unregisterPortsForPid(process.pid);
           }
         };
         return;
       }
-      process.finish(status ?? 0);
+      process.finish(finalStatus());
     } catch (error) {
       process.fail(error);
     } finally {

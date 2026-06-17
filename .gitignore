@@ -15,6 +15,7 @@ node_modules/
 
 # Build, coverage, and tooling output
 build/
+dist/
 out/
 coverage/
 .nyc_output/
@@ -22,6 +23,7 @@ coverage/
 .parcel-cache/
 .vite/
 .turbo/
+.wrangler/
 .next/
 *.tsbuildinfo
 

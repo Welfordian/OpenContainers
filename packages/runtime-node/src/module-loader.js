@@ -10,6 +10,8 @@ import { createHttpBuiltin, createHttpsBuiltin } from "./builtins/http.js";
 import { createNetBuiltin } from "./builtins/net.js";
 import { createChildProcessBuiltin } from "./builtins/child_process.js";
 import { RuntimeBuffer } from "./builtins/buffer.js";
+import { createTimerApi } from "./builtins/timers.js";
+import { createWorkerThreadsBuiltin } from "./builtins/worker_threads.js";
 import { looksLikeEsm, transformEsmToCjs } from "./esm-transform.js";
 
 const textDecoder = new TextDecoder();
@@ -69,11 +71,16 @@ export class ModuleLoader {
       "__dirname",
       "process",
       "console",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
       "setImmediate",
       "clearImmediate",
+      "__welfordGlobals",
       "fetch",
       "__welfordDynamicImport",
-      `${executableSource}\n//# sourceURL=welford://${resolved}`
+      `with (__welfordGlobals) {\n${executableSource}\n}\n//# sourceURL=welford://${resolved}`
     );
     wrapped(
       module.exports,
@@ -83,8 +90,13 @@ export class ModuleLoader {
       dirname(resolved),
       this.process,
       this.console,
-      (callback, ...args) => setTimeout(callback, 0, ...args),
-      clearTimeout,
+      this.timers.setTimeout,
+      this.timers.clearTimeout,
+      this.timers.setInterval,
+      this.timers.clearInterval,
+      this.timers.setImmediate,
+      this.timers.clearImmediate,
+      this.runtimeGlobals,
       this.fetch,
       (specifier) => this.dynamicImport(specifier, resolved)
     );
@@ -120,11 +132,16 @@ export class ModuleLoader {
       "__dirname",
       "process",
       "console",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
       "setImmediate",
       "clearImmediate",
+      "__welfordGlobals",
       "fetch",
       "__welfordDynamicImport",
-      `return (async () => {\n${executableSource}\n})();\n//# sourceURL=welford://${resolved}`
+      `return (async () => {\nwith (__welfordGlobals) {\n${executableSource}\n}\n})();\n//# sourceURL=welford://${resolved}`
     );
     await wrapped(
       module.exports,
@@ -134,8 +151,13 @@ export class ModuleLoader {
       dirname(resolved),
       this.process,
       this.console,
-      (callback, ...args) => setTimeout(callback, 0, ...args),
-      clearTimeout,
+      this.timers.setTimeout,
+      this.timers.clearTimeout,
+      this.timers.setInterval,
+      this.timers.clearInterval,
+      this.timers.setImmediate,
+      this.timers.clearImmediate,
+      this.runtimeGlobals,
       this.fetch,
       (childSpecifier) => this.dynamicImport(childSpecifier, resolved)
     );
@@ -157,6 +179,33 @@ export class ModuleLoader {
   }
 
   #fetch;
+
+  get timers() {
+    if (!this.#timers) this.#timers = createTimerApi({ process: this.process });
+    return this.#timers;
+  }
+
+  #timers;
+
+  get workerThreads() {
+    if (!this.#workerThreads) {
+      this.#workerThreads = createWorkerThreadsBuiltin({
+        process: this.process,
+        workerContext: this.descriptor.workerContext,
+        runWorkerSource: (specifier, options) => this.runWorkerSource(specifier, options)
+      });
+    }
+    return this.#workerThreads;
+  }
+
+  #workerThreads;
+
+  get runtimeGlobals() {
+    return {
+      MessageChannel: this.workerThreads.MessageChannel,
+      MessagePort: this.workerThreads.MessagePort
+    };
+  }
 
   loadCoreModule(specifier) {
     const normalized = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
@@ -191,7 +240,9 @@ export class ModuleLoader {
       "tty",
       "readline",
       "timers",
-      "timers/promises"
+      "timers/promises",
+      "tls",
+      "worker_threads"
     ].includes(name);
   }
 
@@ -230,8 +281,10 @@ export class ModuleLoader {
     if (name === "querystring") return querystringBuiltin;
     if (name === "crypto") return this.createCryptoBuiltin();
     if (name === "zlib") return this.createZlibBuiltin();
-    if (name === "timers") return timersBuiltin;
-    if (name === "timers/promises") return timersPromisesBuiltin;
+    if (name === "timers") return this.timers.builtin;
+    if (name === "timers/promises") return this.timers.promisesBuiltin;
+    if (name === "tls") return tlsBuiltin;
+    if (name === "worker_threads") return this.workerThreads;
     throw new Error(`Unsupported core module: ${name}`);
   }
 
@@ -248,14 +301,116 @@ export class ModuleLoader {
     return promise;
   }
 
+  async runWorkerSource(specifier, options = {}) {
+    const workerDescriptor = {
+      pid: this.descriptor.pid,
+      ppid: this.descriptor.pid,
+      cwd: this.descriptor.cwd,
+      argv: ["node", options.filename ?? "[worker].js"],
+      env: { ...this.descriptor.env },
+      status: "running",
+      stdin: this.descriptor.stdin,
+      stdout: this.descriptor.stdout,
+      stderr: this.descriptor.stderr,
+      projectId: this.descriptor.projectId,
+      workerContext: {
+        parentPort: options.parentPort,
+        threadId: options.threadId,
+        workerData: options.workerData
+      }
+    };
+    const workerLoader = new ModuleLoader({
+      kernel: this.kernel,
+      descriptor: workerDescriptor,
+      console: this.console
+    });
+    try {
+      if (options.signal?.aborted) return;
+      if (options.eval) {
+        const filename = resolvePath(this.descriptor.cwd, options.filename ?? `[worker-${options.threadId ?? "eval"}].js`);
+        await workerLoader.evaluateWorkerSource(String(specifier ?? ""), filename, { type: options.type });
+      } else {
+        const parentFilename = resolvePath(this.descriptor.cwd, "[worker-entry].js");
+        const filename = workerLoader.resolve(String(specifier), parentFilename);
+        await workerLoader.import(filename, parentFilename);
+      }
+      await waitForWorkerIdle(workerDescriptor, options.signal);
+    } finally {
+      workerDescriptor.status = options.signal?.aborted ? "killed" : "exited";
+      cleanupWorkerDescriptor(workerDescriptor);
+    }
+  }
+
+  async evaluateWorkerSource(source, filename, { type } = {}) {
+    const executableSource = type === "module" || looksLikeEsm(source)
+      ? transformEsmToCjs(source, { filename })
+      : source;
+    const module = { id: filename, filename, exports: {} };
+    const require = this.createRequire(filename);
+    const wrapped = new Function(
+      "exports",
+      "require",
+      "module",
+      "__filename",
+      "__dirname",
+      "process",
+      "console",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
+      "setImmediate",
+      "clearImmediate",
+      "__welfordGlobals",
+      "fetch",
+      "__welfordDynamicImport",
+      `return (async () => {\nwith (__welfordGlobals) {\n${executableSource}\n}\n})();\n//# sourceURL=welford://${filename}`
+    );
+    await wrapped(
+      module.exports,
+      require,
+      module,
+      filename,
+      dirname(filename),
+      this.process,
+      this.console,
+      this.timers.setTimeout,
+      this.timers.clearTimeout,
+      this.timers.setInterval,
+      this.timers.clearInterval,
+      this.timers.setImmediate,
+      this.timers.clearImmediate,
+      this.runtimeGlobals,
+      this.fetch,
+      (specifier) => this.dynamicImport(specifier, filename)
+    );
+    return module.exports;
+  }
+
   createCryptoBuiltin() {
+    const randomBytes = (size, callback) => {
+      const bytes = new Uint8Array(size);
+      globalThis.crypto?.getRandomValues?.(bytes);
+      const buffer = RuntimeBuffer.from(bytes);
+      if (typeof callback === "function") {
+        this.process.__welfordAddRef?.();
+        queueMicrotask(() => {
+          try {
+            if (this.process.__welfordIsAlive?.() !== false) callback(null, buffer);
+          } catch (error) {
+            this.process.stderr?.write?.(`${error?.stack ?? error?.message ?? error}\n`);
+            this.process.exitCode = 1;
+          } finally {
+            this.process.__welfordUnref?.();
+          }
+        });
+        return undefined;
+      }
+      return buffer;
+    };
     return {
       randomUUID: () => globalThis.crypto?.randomUUID?.() ?? `welford-${Math.random().toString(16).slice(2)}`,
-      randomBytes: (size) => {
-        const bytes = new Uint8Array(size);
-        globalThis.crypto?.getRandomValues?.(bytes);
-        return RuntimeBuffer.from(bytes);
-      },
+      randomBytes,
       createHash: (algorithm) => {
         const chunks = [];
         return {
@@ -402,7 +557,7 @@ export class ModuleLoader {
       return null;
     }
     if (typeof target === "object") {
-      for (const condition of ["browser", "require", "import", "node", "default"]) {
+      for (const condition of ["require", "import", "node", "default", "browser"]) {
         if (condition in target) {
           const resolved = this.resolvePackageExportTarget(target[condition]);
           if (resolved) return resolved;
@@ -443,6 +598,36 @@ export class ModuleLoader {
 
 function stripResourceQuery(specifier) {
   return String(specifier).replace(/[?#].*$/, "");
+}
+
+function waitForWorkerIdle(descriptor, signal) {
+  if ((descriptor.refCount ?? 0) === 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const previousOnIdle = descriptor.onIdle;
+    const finish = () => {
+      if (descriptor.onIdle === onIdle) descriptor.onIdle = previousOnIdle;
+      signal?.removeEventListener?.("abort", finish);
+      resolve();
+    };
+    const onIdle = () => {
+      previousOnIdle?.();
+      if ((descriptor.refCount ?? 0) === 0) finish();
+    };
+    descriptor.onIdle = onIdle;
+    signal?.addEventListener?.("abort", finish, { once: true });
+  });
+}
+
+function cleanupWorkerDescriptor(descriptor) {
+  const cleanupTasks = [...(descriptor.cleanupTasks ?? [])];
+  descriptor.cleanupTasks?.clear();
+  descriptor.refCount = 0;
+  descriptor.onIdle = null;
+  for (const cleanup of cleanupTasks) {
+    try {
+      cleanup();
+    } catch (_) {}
+  }
 }
 
 function createUtilBuiltin({ console, promisify }) {
@@ -584,27 +769,17 @@ function decodeQueryComponent(value) {
   }
 }
 
-const setImmediateCompat = (callback, ...args) => setTimeout(callback, 0, ...args);
-const clearImmediateCompat = (handle) => clearTimeout(handle);
+class TLSSocket {}
 
-const timersBuiltin = {
-  clearImmediate: clearImmediateCompat,
-  clearInterval,
-  clearTimeout,
-  setImmediate: setImmediateCompat,
-  setInterval,
-  setTimeout
-};
-
-const timersPromisesBuiltin = {
-  setImmediate: (value) => new Promise(resolve => setImmediateCompat(() => resolve(value))),
-  setInterval: async function* timersPromisesSetInterval(delay = 1, value) {
-    while (true) {
-      await new Promise(resolve => setTimeout(resolve, delay));
-      yield value;
-    }
+const tlsBuiltin = {
+  TLSSocket,
+  connect() {
+    throw Object.assign(new Error("node:tls client sockets are not supported in Welford Containers V1"), {
+      code: "ERR_WELFORD_TLS_UNSUPPORTED"
+    });
   },
-  setTimeout: (delay = 1, value) => new Promise(resolve => setTimeout(() => resolve(value), delay))
+  createSecureContext: () => ({}),
+  rootCertificates: []
 };
 
 function createRuntimeFetch({ kernel, process }) {
@@ -627,6 +802,12 @@ function createRuntimeFetch({ kernel, process }) {
         body: request.body
       });
       return responseFromVirtual(response);
+    }
+
+    if (isHostPageOrigin(url)) {
+      throw Object.assign(new Error(`Host application request blocked: ${url.href}`), {
+        code: "ERR_WELFORD_HOST_ORIGIN_BLOCKED"
+      });
     }
 
     if (kernel.allowExternalNetwork !== true) {
@@ -693,4 +874,14 @@ function responseFromVirtual(response) {
 
 function isVirtualFetchHost(hostname) {
   return ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].includes(hostname);
+}
+
+function isHostPageOrigin(url) {
+  const origin = globalThis.location?.origin;
+  if (!origin || origin === "null") return false;
+  try {
+    return url.origin === new URL(origin).origin;
+  } catch (_) {
+    return false;
+  }
 }

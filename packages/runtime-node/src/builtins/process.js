@@ -22,6 +22,12 @@ export function createProcessBuiltin({ descriptor, kernel }) {
   proc.arch = "wasm";
   proc.version = WELFORD_PROCESS_VERSION;
   proc.versions = { ...WELFORD_VERSIONS };
+  Object.defineProperty(proc, "exitCode", {
+    get: () => descriptor.exitCode,
+    set: (code) => {
+      descriptor.exitCode = Number(code) || 0;
+    }
+  });
   proc.stdin = descriptor.stdin;
   proc.stdout = descriptor.stdout;
   proc.stderr = descriptor.stderr;
@@ -40,12 +46,22 @@ export function createProcessBuiltin({ descriptor, kernel }) {
   proc.kill = (pid, signal = "SIGTERM") => kernel.kill(pid, signal);
   proc.emitWarning = (warning) => descriptor.stderr.write(`${warning}\n`);
   descriptor.refCount ??= 0;
+  descriptor.cleanupTasks ??= new Set();
   proc.__welfordAddRef = () => {
     descriptor.refCount++;
   };
   proc.__welfordUnref = () => {
     descriptor.refCount = Math.max(0, descriptor.refCount - 1);
-    if (descriptor.refCount === 0) descriptor.onIdle?.();
+    if (descriptor.refCount === 0) {
+      queueMicrotask(() => {
+        if (descriptor.refCount === 0) descriptor.onIdle?.();
+      });
+    }
   };
+  proc.__welfordOnExit = (cleanup) => {
+    descriptor.cleanupTasks.add(cleanup);
+    return () => descriptor.cleanupTasks.delete(cleanup);
+  };
+  proc.__welfordIsAlive = () => descriptor.status !== "exited" && descriptor.status !== "killed";
   return proc;
 }

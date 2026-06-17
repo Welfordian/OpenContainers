@@ -193,7 +193,7 @@ test("package exports resolve root, subpath, pattern, and conditional targets", 
   ], { cwd: "/workspace" });
 
   assert.equal(result.status, 0, result.stderr.toString());
-  assert.equal(result.stdout.toString(), "browser\nfeature-cjs\npattern\n");
+  assert.equal(result.stdout.toString(), "require\nfeature-cjs\npattern\n");
 });
 
 async function eventually(predicate, timeoutMs = 500) {

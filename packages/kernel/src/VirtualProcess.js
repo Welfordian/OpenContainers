@@ -23,6 +23,13 @@ export class VirtualProcess extends EventEmitter {
     this.exitCode = code;
     this.signalCode = signal;
     this.descriptor.status = "exited";
+    const cleanupTasks = [...(this.descriptor.cleanupTasks ?? [])];
+    this.descriptor.cleanupTasks?.clear();
+    for (const cleanup of cleanupTasks) {
+      try {
+        cleanup();
+      } catch (_) {}
+    }
     this.emit("exit", code, signal);
     this.emit("close", code, signal);
     this.#resolveCompleted({ pid: this.pid, status: code, signal, stdout: this.stdout.toBuffer(), stderr: this.stderr.toBuffer() });

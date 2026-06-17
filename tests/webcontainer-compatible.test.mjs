@@ -111,6 +111,35 @@ test("WelfordContainer facade emits server-ready for detected ports and dispatch
   process.kill();
 });
 
+test("WelfordContainer facade dispatches nested preview URLs to the innermost port", async () => {
+  const container = await WelfordContainer.boot({ projectId: "repl", registerServiceWorker: false });
+  await container.mount({
+    "server.js": {
+      file: {
+        contents: `
+          const http = require('http');
+          http.createServer((req, res) => res.end('inner:' + req.url)).listen(3000);
+        `
+      }
+    }
+  });
+
+  const ready = onceServerReady(container);
+  const process = await container.spawn("node", ["server.js"]);
+  await ready;
+
+  const response = await container.dispatchPreviewRequest({
+    url: "https://run.welford.local/welford/preview/repl:8000/welford/preview/repl:3000/socket.io/?EIO=4&transport=polling",
+    method: "GET",
+    headers: []
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body, "inner:/socket.io/?EIO=4&transport=polling");
+
+  process.kill();
+});
+
 test("WelfordContainer facade kill releases preview ports for reruns", async () => {
   const container = await WelfordContainer.boot({ projectId: "repl", registerServiceWorker: false });
   await container.mount({
@@ -243,10 +272,11 @@ test("WelfordContainer facade waits for Service Worker control before connecting
   }
 });
 
-test("WelfordContainer facade connects previews through an active Service Worker before page control", async () => {
+test("WelfordContainer facade does not connect previews until the Service Worker controls the page", async () => {
   const previousNavigator = globalThis.navigator;
   const previousWindow = globalThis.window;
   let postedMessage = null;
+  const errors = [];
   const activeWorker = {
     postMessage(message, ports) {
       postedMessage = { message, ports };
@@ -275,9 +305,28 @@ test("WelfordContainer facade connects previews through an active Service Worker
     const container = await WelfordContainer.boot({
       serviceWorkerControllerTimeoutMs: 100
     });
+    container.on("error", error => errors.push(error));
+    const portEvents = [];
+    container.on("port", (...args) => portEvents.push(args));
+    container.on("server-ready", (...args) => portEvents.push(args));
+    await container.mount({
+      "server.js": {
+        file: {
+          contents: "require('http').createServer((_req, res) => res.end('ok')).listen(3000);"
+        }
+      }
+    });
 
-    assert.equal(postedMessage?.message?.type, "WELFORD_CONNECT_KERNEL");
-    assert.equal(postedMessage?.ports?.length, 1);
+    const process = await container.spawn("node", ["server.js"]);
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    assert.equal(postedMessage, null);
+    assert.equal(container.serviceWorkerPort, null);
+    assert.deepEqual(portEvents, []);
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /Service Worker is not controlling this page/);
+    process.kill();
+    assert.equal(await process.exit, 143);
     container.teardown();
   } finally {
     Object.defineProperty(globalThis, "navigator", {
@@ -306,6 +355,65 @@ test("WelfordContainer facade allows terminal-only scripts without preview ports
   assert.equal(exitCode, 0);
   assert.equal(output.trim(), "Josh");
   assert.deepEqual(ports, []);
+});
+
+test("WelfordContainer facade keeps interval-only scripts alive until cleared", async () => {
+  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+  await container.mount({
+    "index.js": {
+      file: {
+        contents: `
+          let count = 0;
+          const max = 3;
+          const timer = setInterval(() => {
+            count++;
+            console.log(count);
+            if (count >= max) {
+              clearInterval(timer);
+              console.log('Done!');
+            }
+          }, 1);
+        `
+      }
+    }
+  });
+
+  const process = await container.spawn("node", ["index.js"]);
+  const output = await readStream(process.output);
+  const exitCode = await process.exit;
+
+  assert.equal(exitCode, 0);
+  assert.equal(output.trim(), "1\n2\n3\nDone!");
+});
+
+test("WelfordContainer facade supports node:worker_threads eval workers", async () => {
+  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+  await container.mount({
+    "index.js": {
+      file: {
+        contents: `
+          import { Worker } from "node:worker_threads";
+
+          const worker = new Worker(
+            \`
+              const { parentPort } = require("worker_threads");
+              parentPort.postMessage("Worker OK");
+            \`,
+            { eval: true }
+          );
+
+          worker.on("message", console.log);
+        `
+      }
+    }
+  });
+
+  const process = await container.spawn("node", ["index.js"]);
+  const output = await readStream(process.output);
+  const exitCode = await process.exit;
+
+  assert.equal(exitCode, 0);
+  assert.equal(output.trim(), "Worker OK");
 });
 
 test("Welford service worker script contains preview routing contract", () => {

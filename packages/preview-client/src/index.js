@@ -7,6 +7,7 @@ export function installPreviewClient({ bridge, win = globalThis.window } = {}) {
   const activeBridge = bridge ?? createParentBridge(win, config);
   patchConsole(win, config);
   patchFetch(win, config, activeBridge);
+  patchXMLHttpRequest(win, config, activeBridge);
   patchWebSocket(win, config, activeBridge);
 }
 
@@ -28,11 +29,53 @@ export function mapPreviewRequestUrl(input, config = {}, baseHref = globalThis.l
   }
 
   if (url.origin === previewOrigin && url.pathname.startsWith("/p/")) return url.href;
-  if (url.origin === previewOrigin && raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/__welford/")) {
+  if (url.origin === previewOrigin && !url.pathname.startsWith("/__welford/")) {
     return `${previewOrigin}/p/${encodeURIComponent(config.projectId)}:${config.defaultPort}${url.pathname}${url.search}`;
   }
 
   return null;
+}
+
+export function mapPreviewWebSocketRequest(input, protocols, config = {}, baseHref = globalThis.location?.href ?? "https://run.welford.local/") {
+  let url;
+  try {
+    url = new URL(String(input || ""), config.baseUrl ?? baseHref);
+  } catch (_) {
+    return null;
+  }
+
+  const baseUrl = config.baseUrl ?? baseHref;
+  const previewOrigin = config.previewOrigin ?? new URL(baseUrl).origin;
+  const previewHost = new URL(previewOrigin).host;
+  if (isVirtualLocalhost(url)) {
+    return {
+      projectId: config.projectId,
+      port: Number(url.port || config.defaultPort),
+      path: `${url.pathname}${url.search}`,
+      protocols
+    };
+  }
+
+  if (url.host !== previewHost || url.pathname.startsWith("/__welford/")) return null;
+  if (url.pathname.startsWith("/p/")) {
+    const rest = url.pathname.slice(3);
+    const slashIndex = rest.indexOf("/");
+    const projectSegment = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
+    const [projectId, port] = decodeURIComponent(projectSegment).split(":");
+    return {
+      projectId,
+      port: Number(port || config.defaultPort),
+      path: `${slashIndex === -1 ? "/" : rest.slice(slashIndex)}${url.search}`,
+      protocols
+    };
+  }
+
+  return {
+    projectId: config.projectId,
+    port: Number(config.defaultPort),
+    path: `${url.pathname}${url.search}`,
+    protocols
+  };
 }
 
 async function serializeFetchInput(input, init = {}, config, win) {
@@ -61,25 +104,183 @@ function patchFetch(win, config, bridge) {
   };
 }
 
+function patchXMLHttpRequest(win, config, bridge) {
+  const NativeXMLHttpRequest = win.XMLHttpRequest;
+  if (!NativeXMLHttpRequest) return;
+
+  win.XMLHttpRequest = class WelfordXMLHttpRequest extends EventTarget {
+    static UNSENT = 0;
+    static OPENED = 1;
+    static HEADERS_RECEIVED = 2;
+    static LOADING = 3;
+    static DONE = 4;
+
+    constructor() {
+      super();
+      this.readyState = WelfordXMLHttpRequest.UNSENT;
+      this.response = null;
+      this.responseText = "";
+      this.responseType = "";
+      this.responseURL = "";
+      this.status = 0;
+      this.statusText = "";
+      this.timeout = 0;
+      this.withCredentials = false;
+      this.onreadystatechange = null;
+      this.onload = null;
+      this.onerror = null;
+      this.onabort = null;
+      this.onloadend = null;
+      this.#headers = [];
+      this.#responseHeaders = [];
+    }
+
+    #headers;
+    #responseHeaders;
+    #method = "GET";
+    #url = "";
+    #mappedUrl = null;
+    #native = null;
+    #aborted = false;
+
+    open(method, url, async = true, user, password) {
+      this.#method = String(method ?? "GET").toUpperCase();
+      this.#url = String(url);
+      this.#mappedUrl = mapPreviewRequestUrl(url, config, win.location?.href);
+      if (!this.#mappedUrl || !bridge?.fetch) {
+        this.#native = new NativeXMLHttpRequest();
+        this.#wireNative();
+        this.#native.open(method, url, async, user, password);
+        return;
+      }
+      this.#setReadyState(WelfordXMLHttpRequest.OPENED);
+    }
+
+    setRequestHeader(name, value) {
+      if (this.#native) return this.#native.setRequestHeader(name, value);
+      this.#headers.push([String(name), String(value)]);
+    }
+
+    getResponseHeader(name) {
+      if (this.#native) return this.#native.getResponseHeader(name);
+      const lowerName = String(name).toLowerCase();
+      return this.#responseHeaders.find(([key]) => key.toLowerCase() === lowerName)?.[1] ?? null;
+    }
+
+    getAllResponseHeaders() {
+      if (this.#native) return this.#native.getAllResponseHeaders();
+      return this.#responseHeaders.map(([key, value]) => `${key}: ${value}`).join("\r\n");
+    }
+
+    overrideMimeType(type) {
+      if (this.#native?.overrideMimeType) this.#native.overrideMimeType(type);
+    }
+
+    send(body = null) {
+      if (this.#native) return this.#native.send(body);
+      if (!this.#mappedUrl) {
+        this.#emit("error");
+        this.#emit("loadend");
+        return;
+      }
+      bridge.fetch({
+        url: this.#mappedUrl,
+        method: this.#method,
+        headers: this.#headers,
+        body
+      }).then(async (response) => {
+        if (this.#aborted) return;
+        this.status = response.status;
+        this.statusText = response.statusText;
+        this.responseURL = this.#mappedUrl;
+        this.#responseHeaders = [...response.headers.entries()];
+        this.#setReadyState(WelfordXMLHttpRequest.HEADERS_RECEIVED);
+        const arrayBuffer = await response.arrayBuffer();
+        if (this.#aborted) return;
+        this.#setReadyState(WelfordXMLHttpRequest.LOADING);
+        this.#setResponse(arrayBuffer);
+        this.#setReadyState(WelfordXMLHttpRequest.DONE);
+        this.#emit("load");
+        this.#emit("loadend");
+      }).catch((error) => {
+        if (this.#aborted) return;
+        this.status = 0;
+        this.statusText = "";
+        this.error = error;
+        this.#setReadyState(WelfordXMLHttpRequest.DONE);
+        this.#emit("error");
+        this.#emit("loadend");
+      });
+    }
+
+    abort() {
+      if (this.#native) return this.#native.abort();
+      this.#aborted = true;
+      this.#setReadyState(WelfordXMLHttpRequest.UNSENT);
+      this.#emit("abort");
+      this.#emit("loadend");
+    }
+
+    #setResponse(arrayBuffer) {
+      if (this.responseType === "arraybuffer") {
+        this.response = arrayBuffer;
+        this.responseText = "";
+        return;
+      }
+      const text = new TextDecoder().decode(arrayBuffer);
+      this.responseText = text;
+      this.response = this.responseType === "json" ? JSON.parse(text) : text;
+    }
+
+    #setReadyState(state) {
+      this.readyState = state;
+      this.#emit("readystatechange");
+    }
+
+    #emit(type) {
+      const event = new Event(type);
+      this.dispatchEvent(event);
+      const handler = this[`on${type}`];
+      if (typeof handler === "function") handler.call(this, event);
+    }
+
+    #wireNative() {
+      for (const type of ["readystatechange", "load", "error", "abort", "loadend"]) {
+        this.#native.addEventListener(type, (event) => {
+          this.readyState = this.#native.readyState;
+          this.response = this.#native.response;
+          this.responseText = this.#native.responseText;
+          this.responseURL = this.#native.responseURL;
+          this.status = this.#native.status;
+          this.statusText = this.#native.statusText;
+          this.dispatchEvent(event);
+          const handler = this[`on${type}`];
+          if (typeof handler === "function") handler.call(this, event);
+        });
+      }
+    }
+  };
+  win.XMLHttpRequest.UNSENT = win.XMLHttpRequest.prototype.UNSENT = 0;
+  win.XMLHttpRequest.OPENED = win.XMLHttpRequest.prototype.OPENED = 1;
+  win.XMLHttpRequest.HEADERS_RECEIVED = win.XMLHttpRequest.prototype.HEADERS_RECEIVED = 2;
+  win.XMLHttpRequest.LOADING = win.XMLHttpRequest.prototype.LOADING = 3;
+  win.XMLHttpRequest.DONE = win.XMLHttpRequest.prototype.DONE = 4;
+}
+
 function patchWebSocket(win, config, bridge) {
   const NativeWebSocket = win.WebSocket;
   if (!NativeWebSocket) return;
 
   win.WebSocket = class WelfordWebSocket extends EventTarget {
     constructor(input, protocols) {
-      const url = new URL(input, config.baseUrl ?? win.location.href);
-      if (!isVirtualLocalhost(url)) return new NativeWebSocket(input, protocols);
+      const request = mapPreviewWebSocketRequest(input, protocols, config, win.location?.href);
+      if (!request) return new NativeWebSocket(input, protocols);
       super();
       if (!bridge?.webSocket) {
         queueMicrotask(() => this.dispatchEvent(new Event("error")));
         return;
       }
-      return bridge.webSocket({
-        projectId: config.projectId,
-        port: Number(url.port || config.defaultPort),
-        path: `${url.pathname}${url.search}`,
-        protocols
-      });
+      return bridge.webSocket(request);
     }
   };
 }
@@ -265,6 +466,7 @@ export function previewClientBrowserScript() {
     const bridge = createParentBridge(win, config);
     patchConsole(win, config);
     patchFetch(win, config, bridge);
+    patchXMLHttpRequest(win, config, bridge);
     patchWebSocket(win, config, bridge);
   }
   function isVirtualLocalhost(url) {
@@ -281,10 +483,48 @@ export function previewClientBrowserScript() {
       return previewOrigin + "/p/" + encodeURIComponent(config.projectId) + ":" + port + url.pathname + url.search;
     }
     if (url.origin === previewOrigin && url.pathname.startsWith("/p/")) return url.href;
-    if (url.origin === previewOrigin && raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/__welford/")) {
+    if (url.origin === previewOrigin && !url.pathname.startsWith("/__welford/")) {
       return previewOrigin + "/p/" + encodeURIComponent(config.projectId) + ":" + config.defaultPort + url.pathname + url.search;
     }
     return null;
+  }
+  function mapPreviewWebSocketRequest(input, protocols, config, baseHref) {
+    let url;
+    try {
+      url = new URL(String(input || ""), config.baseUrl || baseHref);
+    } catch (_) {
+      return null;
+    }
+    const baseUrl = config.baseUrl || baseHref;
+    const previewOrigin = config.previewOrigin || new URL(baseUrl).origin;
+    const previewHost = new URL(previewOrigin).host;
+    if (isVirtualLocalhost(url)) {
+      return {
+        projectId: config.projectId,
+        port: Number(url.port || config.defaultPort),
+        path: url.pathname + url.search,
+        protocols
+      };
+    }
+    if (url.host !== previewHost || url.pathname.startsWith("/__welford/")) return null;
+    if (url.pathname.startsWith("/p/")) {
+      const rest = url.pathname.slice(3);
+      const slashIndex = rest.indexOf("/");
+      const projectSegment = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
+      const pieces = decodeURIComponent(projectSegment).split(":");
+      return {
+        projectId: pieces[0],
+        port: Number(pieces[1] || config.defaultPort),
+        path: (slashIndex === -1 ? "/" : rest.slice(slashIndex)) + url.search,
+        protocols
+      };
+    }
+    return {
+      projectId: config.projectId,
+      port: Number(config.defaultPort),
+      path: url.pathname + url.search,
+      protocols
+    };
   }
   async function serializeFetchInput(input, init, config, win) {
     const url = mapPreviewRequestUrl(input, config, win.location?.href);
@@ -308,24 +548,161 @@ export function previewClientBrowserScript() {
       return nativeFetch(input, init);
     };
   }
+  function patchXMLHttpRequest(win, config, bridge) {
+    const NativeXMLHttpRequest = win.XMLHttpRequest;
+    if (!NativeXMLHttpRequest) return;
+    win.XMLHttpRequest = class WelfordXMLHttpRequest extends EventTarget {
+      static UNSENT = 0;
+      static OPENED = 1;
+      static HEADERS_RECEIVED = 2;
+      static LOADING = 3;
+      static DONE = 4;
+      constructor() {
+        super();
+        this.readyState = WelfordXMLHttpRequest.UNSENT;
+        this.response = null;
+        this.responseText = "";
+        this.responseType = "";
+        this.responseURL = "";
+        this.status = 0;
+        this.statusText = "";
+        this.timeout = 0;
+        this.withCredentials = false;
+        this.onreadystatechange = null;
+        this.onload = null;
+        this.onerror = null;
+        this.onabort = null;
+        this.onloadend = null;
+        this._headers = [];
+        this._responseHeaders = [];
+        this._method = "GET";
+        this._url = "";
+        this._mappedUrl = null;
+        this._native = null;
+        this._aborted = false;
+      }
+      open(method, url, async = true, user, password) {
+        this._method = String(method || "GET").toUpperCase();
+        this._url = String(url);
+        this._mappedUrl = mapPreviewRequestUrl(url, config, win.location?.href);
+        if (!this._mappedUrl || !bridge?.fetch) {
+          this._native = new NativeXMLHttpRequest();
+          this._wireNative();
+          this._native.open(method, url, async, user, password);
+          return;
+        }
+        this._setReadyState(WelfordXMLHttpRequest.OPENED);
+      }
+      setRequestHeader(name, value) {
+        if (this._native) return this._native.setRequestHeader(name, value);
+        this._headers.push([String(name), String(value)]);
+      }
+      getResponseHeader(name) {
+        if (this._native) return this._native.getResponseHeader(name);
+        const lowerName = String(name).toLowerCase();
+        const match = this._responseHeaders.find(([key]) => key.toLowerCase() === lowerName);
+        return match ? match[1] : null;
+      }
+      getAllResponseHeaders() {
+        if (this._native) return this._native.getAllResponseHeaders();
+        return this._responseHeaders.map(([key, value]) => key + ": " + value).join("\\r\\n");
+      }
+      overrideMimeType(type) {
+        if (this._native?.overrideMimeType) this._native.overrideMimeType(type);
+      }
+      send(body = null) {
+        if (this._native) return this._native.send(body);
+        if (!this._mappedUrl) {
+          this._emit("error");
+          this._emit("loadend");
+          return;
+        }
+        bridge.fetch({ url: this._mappedUrl, method: this._method, headers: this._headers, body }).then(async (response) => {
+          if (this._aborted) return;
+          this.status = response.status;
+          this.statusText = response.statusText;
+          this.responseURL = this._mappedUrl;
+          this._responseHeaders = [...response.headers.entries()];
+          this._setReadyState(WelfordXMLHttpRequest.HEADERS_RECEIVED);
+          const arrayBuffer = await response.arrayBuffer();
+          if (this._aborted) return;
+          this._setReadyState(WelfordXMLHttpRequest.LOADING);
+          this._setResponse(arrayBuffer);
+          this._setReadyState(WelfordXMLHttpRequest.DONE);
+          this._emit("load");
+          this._emit("loadend");
+        }).catch((error) => {
+          if (this._aborted) return;
+          this.status = 0;
+          this.statusText = "";
+          this.error = error;
+          this._setReadyState(WelfordXMLHttpRequest.DONE);
+          this._emit("error");
+          this._emit("loadend");
+        });
+      }
+      abort() {
+        if (this._native) return this._native.abort();
+        this._aborted = true;
+        this._setReadyState(WelfordXMLHttpRequest.UNSENT);
+        this._emit("abort");
+        this._emit("loadend");
+      }
+      _setResponse(arrayBuffer) {
+        if (this.responseType === "arraybuffer") {
+          this.response = arrayBuffer;
+          this.responseText = "";
+          return;
+        }
+        const text = new TextDecoder().decode(arrayBuffer);
+        this.responseText = text;
+        this.response = this.responseType === "json" ? JSON.parse(text) : text;
+      }
+      _setReadyState(state) {
+        this.readyState = state;
+        this._emit("readystatechange");
+      }
+      _emit(type) {
+        const event = new Event(type);
+        this.dispatchEvent(event);
+        const handler = this["on" + type];
+        if (typeof handler === "function") handler.call(this, event);
+      }
+      _wireNative() {
+        for (const type of ["readystatechange", "load", "error", "abort", "loadend"]) {
+          this._native.addEventListener(type, (event) => {
+            this.readyState = this._native.readyState;
+            this.response = this._native.response;
+            this.responseText = this._native.responseText;
+            this.responseURL = this._native.responseURL;
+            this.status = this._native.status;
+            this.statusText = this._native.statusText;
+            this.dispatchEvent(event);
+            const handler = this["on" + type];
+            if (typeof handler === "function") handler.call(this, event);
+          });
+        }
+      }
+    };
+    win.XMLHttpRequest.UNSENT = win.XMLHttpRequest.prototype.UNSENT = 0;
+    win.XMLHttpRequest.OPENED = win.XMLHttpRequest.prototype.OPENED = 1;
+    win.XMLHttpRequest.HEADERS_RECEIVED = win.XMLHttpRequest.prototype.HEADERS_RECEIVED = 2;
+    win.XMLHttpRequest.LOADING = win.XMLHttpRequest.prototype.LOADING = 3;
+    win.XMLHttpRequest.DONE = win.XMLHttpRequest.prototype.DONE = 4;
+  }
   function patchWebSocket(win, config, bridge) {
     const NativeWebSocket = win.WebSocket;
     if (!NativeWebSocket) return;
     win.WebSocket = class WelfordWebSocket extends EventTarget {
       constructor(input, protocols) {
-        const url = new URL(input, config.baseUrl || win.location.href);
-        if (!isVirtualLocalhost(url)) return new NativeWebSocket(input, protocols);
+        const request = mapPreviewWebSocketRequest(input, protocols, config, win.location?.href);
+        if (!request) return new NativeWebSocket(input, protocols);
         super();
         if (!bridge?.webSocket) {
           queueMicrotask(() => this.dispatchEvent(new Event("error")));
           return;
         }
-        return bridge.webSocket({
-          projectId: config.projectId,
-          port: Number(url.port || config.defaultPort),
-          path: url.pathname + url.search,
-          protocols
-        });
+        return bridge.webSocket(request);
       }
     };
   }

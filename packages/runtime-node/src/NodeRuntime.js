@@ -76,11 +76,16 @@ export class NodeRuntime {
       "__dirname",
       "process",
       "console",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
       "setImmediate",
       "clearImmediate",
+      "__welfordGlobals",
       "fetch",
       "__welfordDynamicImport",
-      `${source}\n//# sourceURL=welford://${filename}`
+      `with (__welfordGlobals) {\n${source}\n}\n//# sourceURL=welford://${filename}`
     );
     wrapped(
       module.exports,
@@ -90,8 +95,13 @@ export class NodeRuntime {
       dirname(filename),
       this.loader.process,
       this.console,
-      (callback, ...args) => setTimeout(callback, 0, ...args),
-      clearTimeout,
+      this.loader.timers.setTimeout,
+      this.loader.timers.clearTimeout,
+      this.loader.timers.setInterval,
+      this.loader.timers.clearInterval,
+      this.loader.timers.setImmediate,
+      this.loader.timers.clearImmediate,
+      this.loader.runtimeGlobals,
       this.loader.fetch,
       (specifier) => this.loader.dynamicImport(specifier, filename)
     );

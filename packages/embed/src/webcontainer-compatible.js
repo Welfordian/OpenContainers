@@ -82,10 +82,10 @@ export class WelfordContainer {
   }
 
   async dispatchPreviewRequest(request) {
-    const preview = parseWelfordPreviewUrl(request.url, this.previewBasePath);
+    const preview = parsePreviewRequest(request, this.previewBasePath, this.projectId);
     const response = await this.kernel.dispatchHttpRequest({
       id: request.id ?? randomId(),
-      projectId: preview.projectId ?? this.projectId,
+      projectId: preview.projectId ?? request.projectId ?? this.projectId,
       port: preview.port,
       method: request.method ?? "GET",
       url: `${preview.path}${preview.search}`,
@@ -101,6 +101,10 @@ export class WelfordContainer {
   #handlePortRegister(entry) {
     if (entry.projectId !== this.projectId) return;
     const url = this.#previewUrl(entry.port);
+    if (this.registerServiceWorker && !this.serviceWorkerPort) {
+      this.#emit("error", new Error(`Server is listening on port ${entry.port}, but browser previews are not available because the Welford preview Service Worker is not controlling this page. Reload the page and run again.`));
+      return;
+    }
     this.#emit("port", entry.port, "open", url);
     this.#emit("server-ready", entry.port, url);
   }
@@ -211,13 +215,9 @@ function waitForServiceWorkerController(serviceWorker, timeoutMs) {
 
 async function resolveServiceWorkerMessageTarget({
   serviceWorker,
-  registration,
-  readyRegistration,
   timeoutMs
 }) {
   if (serviceWorker.controller) return serviceWorker.controller;
-  const activeWorker = readyRegistration?.active ?? registration?.active ?? registration?.waiting ?? null;
-  if (activeWorker?.postMessage) return activeWorker;
   return waitForServiceWorkerController(serviceWorker, timeoutMs);
 }
 
@@ -241,16 +241,35 @@ export function flattenWebContainerTree(tree, prefix = "") {
 export function parseWelfordPreviewUrl(url, previewBasePath = "/welford/preview") {
   const parsed = new URL(url, "https://run.welford.local");
   const base = previewBasePath.replace(/\/$/, "");
-  const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = parsed.pathname.match(new RegExp(`^${escapedBase}/([^/]+)(/.*)?$`));
-  if (!match) throw new Error(`Not a Welford preview URL: ${parsed.pathname}`);
-  const [projectPart, portPart] = decodeURIComponent(match[1]).split(":");
+  const marker = `${base}/`;
+  const markerIndex = parsed.pathname.lastIndexOf(marker);
+  if (markerIndex === -1) throw new Error(`Not a Welford preview URL: ${parsed.pathname}`);
+  const rest = parsed.pathname.slice(markerIndex + marker.length);
+  const slashIndex = rest.indexOf("/");
+  const projectSegment = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
+  const [projectPart, portPart] = decodeURIComponent(projectSegment).split(":");
   return {
     projectId: projectPart,
     port: Number(portPart),
-    path: match[2] || "/",
+    path: slashIndex === -1 ? "/" : rest.slice(slashIndex),
     search: parsed.search
   };
+}
+
+function parsePreviewRequest(request, previewBasePath, fallbackProjectId) {
+  try {
+    return parseWelfordPreviewUrl(request.url, previewBasePath);
+  } catch (error) {
+    const port = Number(request.port);
+    if (!Number.isFinite(port) || port <= 0) throw error;
+    const parsed = new URL(request.url || "/", "https://run.welford.local");
+    return {
+      projectId: request.projectId ?? fallbackProjectId,
+      port,
+      path: parsed.pathname || "/",
+      search: parsed.search
+    };
+  }
 }
 
 export function createWelfordServiceWorkerScript({ previewBasePath = "/welford/preview" } = {}) {

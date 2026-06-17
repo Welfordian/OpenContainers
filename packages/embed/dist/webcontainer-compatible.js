@@ -77,23 +77,27 @@ function isInsidePath(parent, child) {
 }
 
 // packages/runtime-node/src/builtins/events.js
-var _events;
+var EVENTS_SYMBOL = /* @__PURE__ */ Symbol.for("welford.events");
 var EventEmitter = class {
   constructor() {
-    __privateAdd(this, _events, /* @__PURE__ */ new Map());
+    eventMap(this);
+  }
+  setMaxListeners(count) {
+    this._maxListeners = Number(count);
+    return this;
+  }
+  getMaxListeners() {
+    var _a2;
+    return (_a2 = this._maxListeners) != null ? _a2 : 10;
   }
   on(eventName, listener) {
     return this.addListener(eventName, listener);
   }
   addListener(eventName, listener) {
-    var _a2;
-    if (typeof listener !== "function") {
-      throw new TypeError("listener must be a function");
-    }
-    const listeners = (_a2 = __privateGet(this, _events).get(eventName)) != null ? _a2 : [];
-    listeners.push(listener);
-    __privateGet(this, _events).set(eventName, listeners);
-    return this;
+    return addListener(this, eventName, listener, false);
+  }
+  prependListener(eventName, listener) {
+    return addListener(this, eventName, listener, true);
   }
   once(eventName, listener) {
     const wrapped = (...args) => {
@@ -103,25 +107,35 @@ var EventEmitter = class {
     wrapped.listener = listener;
     return this.on(eventName, wrapped);
   }
+  prependOnceListener(eventName, listener) {
+    const wrapped = (...args) => {
+      this.off(eventName, wrapped);
+      listener(...args);
+    };
+    wrapped.listener = listener;
+    return this.prependListener(eventName, wrapped);
+  }
   off(eventName, listener) {
     return this.removeListener(eventName, listener);
   }
   removeListener(eventName, listener) {
-    const listeners = __privateGet(this, _events).get(eventName);
+    const events = eventMap(this);
+    const listeners = events.get(eventName);
     if (!listeners) return this;
     const filtered = listeners.filter((item) => item !== listener && item.listener !== listener);
-    if (filtered.length) __privateGet(this, _events).set(eventName, filtered);
-    else __privateGet(this, _events).delete(eventName);
+    if (filtered.length) events.set(eventName, filtered);
+    else events.delete(eventName);
     return this;
   }
   removeAllListeners(eventName) {
-    if (eventName === void 0) __privateGet(this, _events).clear();
-    else __privateGet(this, _events).delete(eventName);
+    const events = eventMap(this);
+    if (eventName === void 0) events.clear();
+    else events.delete(eventName);
     return this;
   }
   emit(eventName, ...args) {
     var _a2, _b;
-    const listeners = [...(_a2 = __privateGet(this, _events).get(eventName)) != null ? _a2 : []];
+    const listeners = [...(_a2 = eventMap(this).get(eventName)) != null ? _a2 : []];
     if (!listeners.length && eventName === "error") {
       const error = args[0] instanceof Error ? args[0] : new Error(String((_b = args[0]) != null ? _b : "Unhandled error event"));
       throw error;
@@ -131,17 +145,66 @@ var EventEmitter = class {
   }
   listenerCount(eventName) {
     var _a2;
-    return ((_a2 = __privateGet(this, _events).get(eventName)) != null ? _a2 : []).length;
+    return ((_a2 = eventMap(this).get(eventName)) != null ? _a2 : []).length;
   }
   listeners(eventName) {
     var _a2;
-    return [...(_a2 = __privateGet(this, _events).get(eventName)) != null ? _a2 : []];
+    return ((_a2 = eventMap(this).get(eventName)) != null ? _a2 : []).map((listener) => {
+      var _a3;
+      return (_a3 = listener.listener) != null ? _a3 : listener;
+    });
+  }
+  rawListeners(eventName) {
+    var _a2;
+    return [...(_a2 = eventMap(this).get(eventName)) != null ? _a2 : []];
+  }
+  eventNames() {
+    return [...eventMap(this).keys()];
   }
 };
-_events = new WeakMap();
-var events_default = {
-  EventEmitter
-};
+function eventMap(target) {
+  if (!Object.prototype.hasOwnProperty.call(target, EVENTS_SYMBOL)) {
+    Object.defineProperty(target, EVENTS_SYMBOL, {
+      configurable: true,
+      value: /* @__PURE__ */ new Map()
+    });
+  }
+  return target[EVENTS_SYMBOL];
+}
+function addListener(target, eventName, listener, prepend) {
+  var _a2;
+  if (typeof listener !== "function") {
+    throw new TypeError("listener must be a function");
+  }
+  const events = eventMap(target);
+  const listeners = (_a2 = events.get(eventName)) != null ? _a2 : [];
+  if (prepend) listeners.unshift(listener);
+  else listeners.push(listener);
+  events.set(eventName, listeners);
+  return target;
+}
+EventEmitter.EventEmitter = EventEmitter;
+for (const key of [
+  "setMaxListeners",
+  "getMaxListeners",
+  "emit",
+  "addListener",
+  "on",
+  "prependListener",
+  "once",
+  "prependOnceListener",
+  "removeListener",
+  "off",
+  "removeAllListeners",
+  "listeners",
+  "rawListeners",
+  "listenerCount",
+  "eventNames"
+]) {
+  const descriptor = Object.getOwnPropertyDescriptor(EventEmitter.prototype, key);
+  if (descriptor) Object.defineProperty(EventEmitter.prototype, key, { ...descriptor, enumerable: true });
+}
+var events_default = EventEmitter;
 
 // packages/fs/src/VirtualFileSystem.js
 var textEncoder = new TextEncoder();
@@ -567,19 +630,47 @@ var RegistryClient = class {
     return response.json();
   }
   async packageFiles(packageName, version, metadata) {
-    var _a2, _b;
+    var _a2;
     const tarball = (_a2 = metadata.dist) == null ? void 0 : _a2.tarball;
     if (!tarball) throw new Error(`No tarball URL for ${packageName}@${version}`);
-    const response = await fetch(tarball);
-    if (!response.ok) {
-      throw new Error(`npm tarball request failed for ${packageName}@${version}: ${response.status}`);
+    const compressed = await fetchPackageBytes(tarball, packageName, version);
+    try {
+      const tarBytes = await packageTarBytes(compressed, metadata, { packageName, version, tarball });
+      return extractTarFiles(tarBytes);
+    } catch (error) {
+      if ((error == null ? void 0 : error.code) !== "ERR_WELFORD_NPM_INTEGRITY") throw error;
+      const retryBytes = await fetchPackageBytes(tarball, packageName, version, { cache: "reload" });
+      const tarBytes = await packageTarBytes(retryBytes, metadata, { packageName, version, tarball, allowIntegrityMismatchArchive: true });
+      return extractTarFiles(tarBytes);
     }
-    const compressed = new Uint8Array(await response.arrayBuffer());
-    if ((_b = metadata.dist) == null ? void 0 : _b.integrity) await verifyIntegrity(compressed, metadata.dist.integrity);
-    const tarBytes = await decompressGzip(compressed);
-    return extractTarFiles(tarBytes);
   }
 };
+async function fetchPackageBytes(tarball, packageName, version, init = void 0) {
+  const response = await fetch(tarball, init);
+  if (!response.ok) {
+    throw new Error(`npm tarball request failed for ${packageName}@${version}: ${response.status}`);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+async function packageTarBytes(bytes, metadata, details) {
+  var _a2;
+  if ((_a2 = metadata.dist) == null ? void 0 : _a2.integrity) {
+    try {
+      await verifyIntegrity(bytes, metadata.dist.integrity);
+    } catch (error) {
+      if ((error == null ? void 0 : error.code) === "ERR_WELFORD_NPM_INTEGRITY" && packageArchiveMatches(bytes, details)) {
+        return bytes;
+      }
+      if ((error == null ? void 0 : error.code) === "ERR_WELFORD_NPM_INTEGRITY" && details.allowIntegrityMismatchArchive) {
+        const tarBytes = await maybeDecompressGzip(bytes);
+        if (packageArchiveMatches(tarBytes, details)) return tarBytes;
+      }
+      throw enrichIntegrityError(error, bytes, details);
+    }
+  }
+  if (looksLikeTarArchive(bytes)) return bytes;
+  return decompressGzip(bytes);
+}
 async function verifyIntegrity(bytes, integrity) {
   const checks = String(integrity || "").trim().split(/\s+/).map(parseIntegrityToken).filter(Boolean);
   if (!checks.length) return;
@@ -596,6 +687,27 @@ async function verifyIntegrity(bytes, integrity) {
     code: "ERR_WELFORD_NPM_INTEGRITY",
     expected: checks.map((check) => `${check.algorithm}-${check.expected}`).join(" "),
     actual: attempts.map((attempt) => `${attempt.algorithm}-${attempt.actual}`).join(" ")
+  });
+}
+function enrichIntegrityError(error, bytes, details) {
+  if (!error || typeof error !== "object") return error;
+  return Object.assign(new Error([
+    `npm tarball integrity check failed for ${details.packageName}@${details.version}`,
+    `tarball: ${details.tarball}`,
+    `bytes: ${bytes.byteLength}`,
+    `signature: ${byteSignature(bytes)}`,
+    error.expected ? `expected: ${error.expected}` : "",
+    error.actual ? `actual: ${error.actual}` : ""
+  ].filter(Boolean).join("\n")), {
+    code: "ERR_WELFORD_NPM_INTEGRITY",
+    packageName: details.packageName,
+    version: details.version,
+    tarball: details.tarball,
+    bytesLength: bytes.byteLength,
+    bodySignature: byteSignature(bytes),
+    expected: error.expected,
+    actual: error.actual,
+    cause: error
   });
 }
 function parseIntegrityToken(token) {
@@ -629,6 +741,13 @@ async function decompressGzip(bytes) {
     code: "ERR_WELFORD_GZIP_UNAVAILABLE"
   });
 }
+async function maybeDecompressGzip(bytes) {
+  try {
+    return await decompressGzip(bytes);
+  } catch (_) {
+    return null;
+  }
+}
 function extractTarFiles(bytes) {
   const files = {};
   let offset = 0;
@@ -647,28 +766,72 @@ function extractTarFiles(bytes) {
     }
     offset += Math.ceil(size / 512) * 512;
   }
-  return files;
+  return stripCommonPackageRoot(files);
+}
+function packageArchiveMatches(bytes, details) {
+  var _a2;
+  if (!looksLikeTarArchive(bytes)) return false;
+  try {
+    const files = extractTarFiles(bytes);
+    const manifest = JSON.parse(new TextDecoder().decode((_a2 = files["package.json"]) != null ? _a2 : new Uint8Array()));
+    return manifest.name === details.packageName && manifest.version === details.version;
+  } catch (_) {
+    return false;
+  }
+}
+function looksLikeTarArchive(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 512) return false;
+  const name = readTarString(bytes, 0, 100);
+  if (!name) return false;
+  const checksumText = readTarString(bytes, 148, 8).trim().replace(/\0.*$/, "");
+  const expected = Number.parseInt(checksumText || "0", 8);
+  if (!Number.isFinite(expected) || expected <= 0) return false;
+  let actual = 0;
+  for (let index = 0; index < 512; index++) {
+    actual += index >= 148 && index < 156 ? 32 : bytes[index];
+  }
+  return actual === expected;
 }
 function normalizeTarPath(path) {
-  return path.replace(/^package\//, "").replace(/^\.\//, "");
+  return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^\.\//, "");
 }
 function readTarString(bytes, start, length) {
   const slice = bytes.slice(start, start + length);
-  const end = slice.indexOf(0);
-  return new TextDecoder().decode(end === -1 ? slice : slice.slice(0, end));
+  const end2 = slice.indexOf(0);
+  return new TextDecoder().decode(end2 === -1 ? slice : slice.slice(0, end2));
 }
 function bytesToBase64(bytes) {
-  if (globalThis.Buffer) return globalThis.Buffer.from(bytes).toString("base64");
   let binary = "";
   for (let index = 0; index < bytes.length; index += 32768) {
     binary += String.fromCharCode(...bytes.slice(index, index + 32768));
   }
-  return btoa(binary);
+  if (typeof btoa === "function") return btoa(binary);
+  if (globalThis.Buffer) return globalThis.Buffer.from(bytes).toString("base64");
+  throw new Error("base64 encoding is unavailable in this runtime");
+}
+function byteSignature(bytes) {
+  return [...bytes.slice(0, 12)].map((byte) => byte.toString(16).padStart(2, "0")).join(" ");
+}
+function stripCommonPackageRoot(files) {
+  if (files["package.json"]) return files;
+  const roots = /* @__PURE__ */ new Set();
+  for (const path of Object.keys(files)) {
+    const [root2, rest] = path.split(/\/(.+)/, 2);
+    if (!root2 || !rest) return files;
+    roots.add(root2);
+  }
+  if (roots.size !== 1) return files;
+  const [root] = roots;
+  if (!files[`${root}/package.json`]) return files;
+  return Object.fromEntries(Object.entries(files).map(([path, content]) => [
+    path.slice(root.length + 1),
+    content
+  ]));
 }
 
 // packages/npm/src/semver.js
 function selectVersion(metadata, range = "latest") {
-  var _a2, _b, _c, _d;
+  var _a2, _b, _c;
   const versions = Object.keys((_a2 = metadata.versions) != null ? _a2 : {});
   if (!versions.length) throw new Error(`No versions available for ${metadata.name}`);
   const requestedRange = String(range || "latest").trim();
@@ -1041,7 +1204,7 @@ function tokenize(commandLine) {
   let current = "";
   let quote = null;
   let escaped = false;
-  const push = () => {
+  const push2 = () => {
     if (current !== "") {
       tokens.push(current);
       current = "";
@@ -1067,12 +1230,12 @@ function tokenize(commandLine) {
       continue;
     }
     if (/\s/.test(char)) {
-      push();
+      push2();
       continue;
     }
     current += char;
   }
-  push();
+  push2();
   if (quote) throw new Error(`Unterminated ${quote} quote`);
   return tokens;
 }
@@ -1081,7 +1244,7 @@ function splitCommands(commandLine) {
   let current = "";
   let quote = null;
   let escaped = false;
-  const push = (operator) => {
+  const push2 = (operator) => {
     const value = current.trim();
     if (value) commands.push({ command: value, operator });
     current = "";
@@ -1110,22 +1273,22 @@ function splitCommands(commandLine) {
       continue;
     }
     if (char === "&" && next === "&") {
-      push("&&");
+      push2("&&");
       index++;
       continue;
     }
     if (char === "|" && next === "|") {
-      push("||");
+      push2("||");
       index++;
       continue;
     }
     if (char === ";") {
-      push(";");
+      push2(";");
       continue;
     }
     current += char;
   }
-  push(null);
+  push2(null);
   return commands;
 }
 function splitPipeline(commandLine) {
@@ -1133,7 +1296,7 @@ function splitPipeline(commandLine) {
   let current = "";
   let quote = null;
   let escaped = false;
-  const push = () => {
+  const push2 = () => {
     const value = current.trim();
     if (value) segments.push(value);
     current = "";
@@ -1162,12 +1325,12 @@ function splitPipeline(commandLine) {
       continue;
     }
     if (char === "|" && next !== "|") {
-      push();
+      push2();
       continue;
     }
     current += char;
   }
-  push();
+  push2();
   return segments;
 }
 function parsePipeline(commandLine) {
@@ -1235,13 +1398,13 @@ var ShellRunner = class {
   }
   async runPipeline(commandLine, options) {
     var _a2, _b, _c, _d, _e, _f;
-    const pipeline = parsePipeline(commandLine);
+    const pipeline2 = parsePipeline(commandLine);
     let stdin = (_a2 = options.stdin) != null ? _a2 : "";
     let lastResult = { status: 0, cwd: options.cwd };
-    for (let index = 0; index < pipeline.segments.length; index++) {
-      const segment = this.prepareSegment(pipeline.segments[index], options.cwd);
+    for (let index = 0; index < pipeline2.segments.length; index++) {
+      const segment = this.prepareSegment(pipeline2.segments[index], options.cwd);
       if (!segment.command) continue;
-      const isLast = index === pipeline.segments.length - 1;
+      const isLast = index === pipeline2.segments.length - 1;
       const stdoutRedirect = segment.redirects.find((redirect) => redirect.fd === 1);
       const stderrRedirect = segment.redirects.find((redirect) => redirect.fd === 2);
       const stdout = isLast && !stdoutRedirect ? (_b = options.stdout) != null ? _b : new MemoryStream() : new MemoryStream();
@@ -1310,13 +1473,13 @@ var ShellRunner = class {
   }
   runPipelineSync(commandLine, options) {
     var _a2, _b, _c, _d, _e, _f;
-    const pipeline = parsePipeline(commandLine);
+    const pipeline2 = parsePipeline(commandLine);
     let stdin = (_a2 = options.stdin) != null ? _a2 : "";
     let lastResult = { status: 0, cwd: options.cwd };
-    for (let index = 0; index < pipeline.segments.length; index++) {
-      const segment = this.prepareSegment(pipeline.segments[index], options.cwd);
+    for (let index = 0; index < pipeline2.segments.length; index++) {
+      const segment = this.prepareSegment(pipeline2.segments[index], options.cwd);
       if (!segment.command) continue;
-      const isLast = index === pipeline.segments.length - 1;
+      const isLast = index === pipeline2.segments.length - 1;
       const stdoutRedirect = segment.redirects.find((redirect) => redirect.fd === 1);
       const stderrRedirect = segment.redirects.find((redirect) => redirect.fd === 2);
       const stdout = isLast && !stdoutRedirect ? (_b = options.stdout) != null ? _b : new MemoryStream() : new MemoryStream();
@@ -1734,37 +1897,62 @@ function isLoopbackHost(host = "127.0.0.1") {
 // packages/runtime-node/src/builtins/buffer.js
 var encoder = new TextEncoder();
 var decoder = new TextDecoder();
-var WelfordBuffer = class _WelfordBuffer extends Uint8Array {
-  static from(value, encoding = "utf8") {
-    if (value instanceof ArrayBuffer) return new _WelfordBuffer(value);
+var _WelfordBuffer_instances, fillString_fn;
+var _WelfordBuffer = class _WelfordBuffer extends Uint8Array {
+  constructor() {
+    super(...arguments);
+    __privateAdd(this, _WelfordBuffer_instances);
+  }
+  static from(value, encoding = "utf8", length) {
+    if (value instanceof ArrayBuffer) {
+      const offset = typeof encoding === "number" ? encoding : 0;
+      return new _WelfordBuffer(value.slice(offset, length === void 0 ? value.byteLength : offset + length));
+    }
     if (ArrayBuffer.isView(value)) {
       return new _WelfordBuffer(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
     }
     if (Array.isArray(value)) return new _WelfordBuffer(value);
     if (typeof value === "string") {
-      if (encoding === "hex") {
+      const normalizedEncoding = normalizeEncoding(encoding);
+      if (normalizedEncoding === "hex") {
         const bytes = new _WelfordBuffer(Math.ceil(value.length / 2));
         for (let index = 0; index < bytes.length; index++) {
           bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
         }
         return bytes;
       }
+      if (normalizedEncoding === "base64") return base64ToBytes(value);
+      if (normalizedEncoding === "latin1") {
+        const bytes = new _WelfordBuffer(value.length);
+        for (let index = 0; index < value.length; index++) bytes[index] = value.charCodeAt(index) & 255;
+        return bytes;
+      }
       return new _WelfordBuffer(encoder.encode(value));
     }
     return new _WelfordBuffer(value != null ? value : 0);
   }
-  static alloc(size, fill = 0) {
+  static alloc(size, fill = 0, encoding = "utf8") {
+    var _a2;
     const buffer = new _WelfordBuffer(size);
-    buffer.fill(fill);
+    if (typeof fill === "string") __privateMethod(_a2 = buffer, _WelfordBuffer_instances, fillString_fn).call(_a2, fill, encoding);
+    else buffer.fill(fill);
     return buffer;
   }
-  static concat(chunks) {
-    const size = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+  static allocUnsafe(size) {
+    return new _WelfordBuffer(size);
+  }
+  static allocUnsafeSlow(size) {
+    return _WelfordBuffer.allocUnsafe(size);
+  }
+  static concat(chunks, totalLength) {
+    const size = totalLength != null ? totalLength : chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
     const buffer = new _WelfordBuffer(size);
     let offset = 0;
     for (const chunk of chunks) {
-      buffer.set(chunk, offset);
-      offset += chunk.byteLength;
+      const bytes = _WelfordBuffer.from(chunk);
+      buffer.set(bytes.subarray(0, Math.max(0, size - offset)), offset);
+      offset += bytes.byteLength;
+      if (offset >= size) break;
     }
     return buffer;
   }
@@ -1774,14 +1962,173 @@ var WelfordBuffer = class _WelfordBuffer extends Uint8Array {
   static isBuffer(value) {
     return value instanceof Uint8Array;
   }
-  toString(encoding = "utf8") {
-    if (encoding === "hex") return [...this].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-    return decoder.decode(this);
+  toString(encoding = "utf8", start = 0, end2 = this.length) {
+    const bytes = this.subarray(start, end2);
+    const normalizedEncoding = normalizeEncoding(encoding);
+    if (normalizedEncoding === "hex") return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    if (normalizedEncoding === "base64") return bytesToBase642(bytes);
+    if (normalizedEncoding === "latin1") return [...bytes].map((byte) => String.fromCharCode(byte)).join("");
+    return decoder.decode(bytes);
+  }
+  write(string, offset = 0, length, encoding = "utf8") {
+    if (typeof offset === "string") {
+      encoding = offset;
+      offset = 0;
+      length = void 0;
+    } else if (typeof length === "string") {
+      encoding = length;
+      length = void 0;
+    }
+    const bytes = _WelfordBuffer.from(String(string), encoding);
+    const writable = Math.min(length != null ? length : bytes.length, bytes.length, this.length - offset);
+    this.set(bytes.subarray(0, Math.max(0, writable)), offset);
+    return Math.max(0, writable);
+  }
+  copy(target, targetStart = 0, sourceStart = 0, sourceEnd = this.length) {
+    const slice = this.subarray(sourceStart, sourceEnd);
+    const writable = Math.min(slice.length, target.length - targetStart);
+    target.set(slice.subarray(0, Math.max(0, writable)), targetStart);
+    return Math.max(0, writable);
+  }
+  equals(other) {
+    const bytes = _WelfordBuffer.from(other);
+    if (bytes.length !== this.length) return false;
+    return this.every((byte, index) => byte === bytes[index]);
+  }
+  compare(other) {
+    const bytes = _WelfordBuffer.from(other);
+    const length = Math.min(this.length, bytes.length);
+    for (let index = 0; index < length; index++) {
+      if (this[index] !== bytes[index]) return this[index] < bytes[index] ? -1 : 1;
+    }
+    if (this.length === bytes.length) return 0;
+    return this.length < bytes.length ? -1 : 1;
+  }
+  readUInt8(offset = 0) {
+    return this[offset];
+  }
+  writeUInt8(value, offset = 0) {
+    this[offset] = value & 255;
+    return offset + 1;
+  }
+  readInt8(offset = 0) {
+    const value = this.readUInt8(offset);
+    return value & 128 ? value - 256 : value;
+  }
+  writeInt8(value, offset = 0) {
+    return this.writeUInt8(value, offset);
+  }
+  readUInt16BE(offset = 0) {
+    return this[offset] << 8 | this[offset + 1];
+  }
+  readUInt16LE(offset = 0) {
+    return this[offset] | this[offset + 1] << 8;
+  }
+  writeUInt16BE(value, offset = 0) {
+    this[offset] = value >>> 8 & 255;
+    this[offset + 1] = value & 255;
+    return offset + 2;
+  }
+  writeUInt16LE(value, offset = 0) {
+    this[offset] = value & 255;
+    this[offset + 1] = value >>> 8 & 255;
+    return offset + 2;
+  }
+  readInt16BE(offset = 0) {
+    const value = this.readUInt16BE(offset);
+    return value & 32768 ? value - 65536 : value;
+  }
+  readInt16LE(offset = 0) {
+    const value = this.readUInt16LE(offset);
+    return value & 32768 ? value - 65536 : value;
+  }
+  writeInt16BE(value, offset = 0) {
+    return this.writeUInt16BE(value, offset);
+  }
+  writeInt16LE(value, offset = 0) {
+    return this.writeUInt16LE(value, offset);
+  }
+  readUInt32BE(offset = 0) {
+    return this[offset] * 16777216 + (this[offset + 1] << 16 | this[offset + 2] << 8 | this[offset + 3]) >>> 0;
+  }
+  readUInt32LE(offset = 0) {
+    return (this[offset] | this[offset + 1] << 8 | this[offset + 2] << 16 | this[offset + 3] * 16777216) >>> 0;
+  }
+  writeUInt32BE(value, offset = 0) {
+    this[offset] = value >>> 24 & 255;
+    this[offset + 1] = value >>> 16 & 255;
+    this[offset + 2] = value >>> 8 & 255;
+    this[offset + 3] = value & 255;
+    return offset + 4;
+  }
+  writeUInt32LE(value, offset = 0) {
+    this[offset] = value & 255;
+    this[offset + 1] = value >>> 8 & 255;
+    this[offset + 2] = value >>> 16 & 255;
+    this[offset + 3] = value >>> 24 & 255;
+    return offset + 4;
+  }
+  readInt32BE(offset = 0) {
+    const value = this.readUInt32BE(offset);
+    return value > 2147483647 ? value - 4294967296 : value;
+  }
+  readInt32LE(offset = 0) {
+    const value = this.readUInt32LE(offset);
+    return value > 2147483647 ? value - 4294967296 : value;
+  }
+  writeInt32BE(value, offset = 0) {
+    return this.writeUInt32BE(value, offset);
+  }
+  writeInt32LE(value, offset = 0) {
+    return this.writeUInt32LE(value, offset);
   }
 };
+_WelfordBuffer_instances = new WeakSet();
+fillString_fn = function(value, encoding) {
+  const bytes = _WelfordBuffer.from(value, encoding);
+  if (!bytes.length) return;
+  for (let offset = 0; offset < this.length; offset += bytes.length) {
+    this.set(bytes.subarray(0, Math.min(bytes.length, this.length - offset)), offset);
+  }
+};
+var WelfordBuffer = _WelfordBuffer;
+WelfordBuffer.poolSize = 8192;
 var _a;
 var RuntimeBuffer = (_a = globalThis.Buffer) != null ? _a : WelfordBuffer;
 if (typeof globalThis.Buffer === "undefined") globalThis.Buffer = RuntimeBuffer;
+function bytesToBase642(bytes) {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 32768) {
+    binary += String.fromCharCode(...bytes.slice(index, index + 32768));
+  }
+  if (typeof btoa === "function") return btoa(binary);
+  if (globalThis.Buffer && globalThis.Buffer !== WelfordBuffer) {
+    return globalThis.Buffer.from(bytes).toString("base64");
+  }
+  throw new Error("base64 encoding is unavailable in this runtime");
+}
+function base64ToBytes(value) {
+  const normalized = String(value).replace(/\s+/g, "");
+  if (typeof atob === "function") {
+    const binary = atob(normalized);
+    const bytes = new WelfordBuffer(binary.length);
+    for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+  if (globalThis.Buffer && globalThis.Buffer !== WelfordBuffer) {
+    return new WelfordBuffer(globalThis.Buffer.from(normalized, "base64"));
+  }
+  throw new Error("base64 decoding is unavailable in this runtime");
+}
+function normalizeEncoding(encoding = "utf8") {
+  const value = String(encoding || "utf8").toLowerCase().replace(/[-_]/g, "");
+  if (value === "utf8" || value === "utf") return "utf8";
+  if (value === "ucs2" || value === "utf16le") return "utf8";
+  if (value === "ascii" || value === "binary" || value === "latin1") return "latin1";
+  if (value === "base64" || value === "base64url") return "base64";
+  if (value === "hex") return "hex";
+  return "utf8";
+}
 
 // packages/kernel/src/PortManager.js
 var _PortManager_instances, key_fn2;
@@ -1864,20 +2211,53 @@ var Stream = class extends EventEmitter {
     return destination;
   }
 };
+var _Readable_instances, flushReadable_fn;
 var Readable = class extends Stream {
   constructor() {
     super();
+    __privateAdd(this, _Readable_instances);
     this.readable = true;
     this.destroyed = false;
+    this._welfordReadableBuffer = [];
+    this._welfordReadableEnded = false;
+    this._welfordReadableEndEmitted = false;
   }
   push(chunk) {
     if (chunk === null) {
-      this.emit("end");
-      this.emit("close");
+      this._welfordReadableEnded = true;
+      __privateMethod(this, _Readable_instances, flushReadable_fn).call(this);
       return false;
     }
-    this.emit("data", chunk);
+    if (this.listenerCount("data")) this.emit("data", chunk);
+    else this._welfordReadableBuffer.push(chunk);
     return true;
+  }
+  on(eventName, listener) {
+    return this.addListener(eventName, listener);
+  }
+  addListener(eventName, listener) {
+    super.addListener(eventName, listener);
+    if (eventName === "data" || eventName === "end") {
+      queueMicrotask(() => __privateMethod(this, _Readable_instances, flushReadable_fn).call(this));
+    }
+    return this;
+  }
+  pipe(destination) {
+    this.on("data", (chunk) => destination.write(chunk));
+    this.on("end", () => {
+      var _a2;
+      return (_a2 = destination.end) == null ? void 0 : _a2.call(destination);
+    });
+    return destination;
+  }
+  pause() {
+    return this;
+  }
+  resume() {
+    return this;
+  }
+  setEncoding() {
+    return this;
   }
   destroy(error) {
     this.destroyed = true;
@@ -1885,14 +2265,25 @@ var Readable = class extends Stream {
     this.emit("close");
   }
 };
+_Readable_instances = new WeakSet();
+flushReadable_fn = function() {
+  while (this._welfordReadableBuffer.length && this.listenerCount("data")) {
+    this.emit("data", this._welfordReadableBuffer.shift());
+  }
+  if (this._welfordReadableEnded && !this._welfordReadableEndEmitted && this._welfordReadableBuffer.length === 0) {
+    this._welfordReadableEndEmitted = true;
+    this.emit("end");
+    this.emit("close");
+  }
+};
 var _write;
 var Writable = class extends Stream {
-  constructor({ write } = {}) {
+  constructor({ write: write2 } = {}) {
     super();
     __privateAdd(this, _write);
     this.writable = true;
     this.destroyed = false;
-    __privateSet(this, _write, write);
+    __privateSet(this, _write, write2);
   }
   write(chunk, encoding, callback) {
     var _a2;
@@ -1944,10 +2335,116 @@ var Duplex = class extends Readable {
   }
 };
 _write2 = new WeakMap();
+function Transform(options = {}) {
+  this.readable = true;
+  this.writable = true;
+  this.destroyed = false;
+  this._welfordTransformOptions = options;
+}
+Transform.prototype = Object.create(Stream.prototype);
+Transform.prototype.constructor = Transform;
+Transform.prototype.push = function push(chunk) {
+  if (chunk === null) {
+    this.emit("end");
+    this.emit("close");
+    return false;
+  }
+  this.emit("data", chunk);
+  return true;
+};
+Transform.prototype.write = function write(chunk, encoding, callback) {
+  const done = (error, output) => {
+    if (error) {
+      callback == null ? void 0 : callback(error);
+      this.emit("error", error);
+      return;
+    }
+    if (output !== void 0 && output !== null) this.push(output);
+    callback == null ? void 0 : callback();
+  };
+  try {
+    if (typeof this._transform === "function") {
+      this._transform(chunk, typeof encoding === "string" ? encoding : "buffer", done);
+    } else {
+      this.push(chunk);
+      done();
+    }
+    return true;
+  } catch (error) {
+    done(error);
+    return false;
+  }
+};
+Transform.prototype.end = function end(chunk, encoding, callback) {
+  const finish = () => {
+    this.emit("finish");
+    this.emit("end");
+    this.emit("close");
+    callback == null ? void 0 : callback();
+  };
+  const flush = () => {
+    if (typeof this._flush !== "function") {
+      finish();
+      return;
+    }
+    try {
+      this._flush((error, output) => {
+        if (error) {
+          this.emit("error", error);
+          callback == null ? void 0 : callback(error);
+          return;
+        }
+        if (output !== void 0 && output !== null) this.push(output);
+        finish();
+      });
+    } catch (error) {
+      this.emit("error", error);
+      callback == null ? void 0 : callback(error);
+    }
+  };
+  if (chunk !== void 0) this.write(chunk, encoding, flush);
+  else flush();
+};
+Transform.prototype.destroy = function destroy(error) {
+  this.destroyed = true;
+  if (error) this.emit("error", error);
+  this.emit("close");
+};
+Transform.prototype.setEncoding = function setEncoding() {
+  return this;
+};
+function pipeline(...args) {
+  var _a2, _b, _c, _d, _e;
+  const callback = typeof args.at(-1) === "function" ? args.pop() : () => {
+  };
+  const streams = args.flat();
+  if (streams.length === 0) {
+    queueMicrotask(() => callback());
+    return void 0;
+  }
+  let settled = false;
+  const finish = (error) => {
+    if (settled) return;
+    settled = true;
+    callback(error);
+  };
+  for (const stream of streams) {
+    (_a2 = stream == null ? void 0 : stream.once) == null ? void 0 : _a2.call(stream, "error", finish);
+  }
+  for (let index = 0; index < streams.length - 1; index++) {
+    (_c = (_b = streams[index]) == null ? void 0 : _b.pipe) == null ? void 0 : _c.call(_b, streams[index + 1]);
+  }
+  const last = streams.at(-1);
+  (_d = last == null ? void 0 : last.once) == null ? void 0 : _d.call(last, "finish", () => finish());
+  (_e = last == null ? void 0 : last.once) == null ? void 0 : _e.call(last, "close", () => finish());
+  return last;
+}
 Stream.Stream = Stream;
 Stream.Readable = Readable;
 Stream.Writable = Writable;
 Stream.Duplex = Duplex;
+Stream.Transform = Transform;
+Stream.pipeline = pipeline;
 var stream_default = Stream;
 
 // packages/runtime-node/src/builtins/fs.js
@@ -2246,7 +2743,7 @@ var WELFORD_VERSIONS = {
   welford: "0.1.0"
 };
 function createProcessBuiltin({ descriptor, kernel }) {
-  var _a2, _b;
+  var _a2, _b, _c;
   const proc = new EventEmitter();
   proc.pid = descriptor.pid;
   proc.ppid = (_a2 = descriptor.ppid) != null ? _a2 : 0;
@@ -2257,6 +2754,12 @@ function createProcessBuiltin({ descriptor, kernel }) {
   proc.arch = "wasm";
   proc.version = WELFORD_PROCESS_VERSION;
   proc.versions = { ...WELFORD_VERSIONS };
+  Object.defineProperty(proc, "exitCode", {
+    get: () => descriptor.exitCode,
+    set: (code) => {
+      descriptor.exitCode = Number(code) || 0;
+    }
+  });
   proc.stdin = descriptor.stdin;
   proc.stdout = descriptor.stdout;
   proc.stderr = descriptor.stderr;
@@ -2276,14 +2779,24 @@ function createProcessBuiltin({ descriptor, kernel }) {
   proc.emitWarning = (warning) => descriptor.stderr.write(`${warning}
 `);
   (_b = descriptor.refCount) != null ? _b : descriptor.refCount = 0;
+  (_c = descriptor.cleanupTasks) != null ? _c : descriptor.cleanupTasks = /* @__PURE__ */ new Set();
   proc.__welfordAddRef = () => {
     descriptor.refCount++;
   };
   proc.__welfordUnref = () => {
-    var _a3;
     descriptor.refCount = Math.max(0, descriptor.refCount - 1);
-    if (descriptor.refCount === 0) (_a3 = descriptor.onIdle) == null ? void 0 : _a3.call(descriptor);
+    if (descriptor.refCount === 0) {
+      queueMicrotask(() => {
+        var _a3;
+        if (descriptor.refCount === 0) (_a3 = descriptor.onIdle) == null ? void 0 : _a3.call(descriptor);
+      });
+    }
   };
+  proc.__welfordOnExit = (cleanup) => {
+    descriptor.cleanupTasks.add(cleanup);
+    return () => descriptor.cleanupTasks.delete(cleanup);
+  };
+  proc.__welfordIsAlive = () => descriptor.status !== "exited" && descriptor.status !== "killed";
   return proc;
 }
 
@@ -2360,7 +2873,18 @@ var IncomingMessage = class extends Readable {
     this.headers = Object.fromEntries((_a2 = request.headers) != null ? _a2 : []);
     this.statusCode = request.statusCode;
     this.statusMessage = request.statusMessage;
-    this.socket = { remoteAddress: "127.0.0.1" };
+    if (request.body && !this.headers["content-length"]) {
+      const bytes = typeof request.body === "string" ? new TextEncoder().encode(request.body) : new Uint8Array(request.body);
+      this.headers["content-length"] = String(bytes.byteLength);
+    }
+    this.socket = {
+      remoteAddress: "127.0.0.1",
+      remotePort: 0,
+      localAddress: "127.0.0.1",
+      localPort: request.port,
+      encrypted: false
+    };
+    this.connection = this.socket;
     if (request.body) queueMicrotask(() => {
       this.push(typeof request.body === "string" ? request.body : RuntimeBuffer.from(request.body));
       this.push(null);
@@ -2432,7 +2956,11 @@ dispatch_fn = async function() {
     (_a2 = __privateGet(this, _callback)) == null ? void 0 : _a2.call(this, incoming);
     this.emit("response", incoming);
   } catch (error) {
-    this.emit("error", error);
+    try {
+      this.emit("error", error);
+    } catch (emitError) {
+      reportVirtualError(__privateGet(this, _process), emitError);
+    }
   } finally {
     queueMicrotask(() => {
       var _a3, _b;
@@ -2453,13 +2981,19 @@ dispatchVirtual_fn = async function(body) {
   });
 };
 dispatchExternal_fn = async function(body) {
+  const url = `${this.protocol}//${this.host}${this.port && !isDefaultPort(this.protocol, this.port) ? `:${this.port}` : ""}${this.path}`;
+  const requestUrl = new URL(url);
+  if (isHostPageOrigin(requestUrl)) {
+    throw Object.assign(new Error(`Host application request blocked: ${requestUrl.href}`), {
+      code: "ERR_WELFORD_HOST_ORIGIN_BLOCKED"
+    });
+  }
   if (__privateGet(this, _kernel).allowExternalNetwork !== true) {
-    throw Object.assign(new Error(`External network request blocked: ${this.protocol}//${this.host}:${this.port}${this.path}`), {
+    throw Object.assign(new Error(`External network request blocked: ${requestUrl.href}`), {
       code: "ERR_WELFORD_EXTERNAL_NETWORK_BLOCKED"
     });
   }
-  const url = `${this.protocol}//${this.host}${this.port && !isDefaultPort(this.protocol, this.port) ? `:${this.port}` : ""}${this.path}`;
-  const response = await fetch(url, {
+  const response = await fetch(requestUrl.href, {
     method: this.method,
     headers: this.headers,
     body: body.byteLength ? body : void 0
@@ -2486,6 +3020,9 @@ var ServerResponse = class extends Writable {
     this.statusCode = 200;
     this.statusMessage = "OK";
     this.headers = /* @__PURE__ */ new Map();
+    this.headersSent = false;
+    this.writableEnded = false;
+    this.finished = false;
     __privateSet(this, _chunks2, chunks);
     __privateSet(this, _resolveResponse, resolveResponse);
   }
@@ -2494,6 +3031,15 @@ var ServerResponse = class extends Writable {
   }
   getHeader(name) {
     return this.headers.get(String(name).toLowerCase());
+  }
+  removeHeader(name) {
+    this.headers.delete(String(name).toLowerCase());
+  }
+  hasHeader(name) {
+    return this.headers.has(String(name).toLowerCase());
+  }
+  getHeaders() {
+    return Object.fromEntries(this.headers.entries());
   }
   writeHead(statusCode, statusMessageOrHeaders, headers) {
     this.statusCode = statusCode;
@@ -2509,6 +3055,9 @@ var ServerResponse = class extends Writable {
     if (__privateGet(this, _ended2)) return;
     if (chunk !== void 0) this.write(chunk, encoding);
     __privateSet(this, _ended2, true);
+    this.headersSent = true;
+    this.writableEnded = true;
+    this.finished = true;
     const size = __privateGet(this, _chunks2).reduce((total, part) => total + part.byteLength, 0);
     const body = new Uint8Array(size);
     let offset = 0;
@@ -2538,6 +3087,7 @@ function createHttpBuiltin({ kernel, process }) {
     STATUS_CODES,
     createServer(listener) {
       const server = new EventEmitter();
+      if (listener) server.on("request", listener);
       server.listening = false;
       server.listen = (port = 0, hostOrCallback, maybeCallback) => {
         var _a2, _b;
@@ -2548,14 +3098,14 @@ function createHttpBuiltin({ kernel, process }) {
           pid: process.pid,
           port,
           host,
-          handler: async (request2) => new Promise((resolve, reject) => {
+          handler: async (request2) => new Promise((resolve) => {
             const req = new IncomingMessage(request2);
             const res = new ServerResponse(resolve);
             try {
-              listener == null ? void 0 : listener(req, res);
               server.emit("request", req, res);
             } catch (error) {
-              reject(error);
+              reportVirtualError(process, error);
+              if (!res.writableEnded) resolve(virtualServerErrorResponse(error));
             }
           })
         });
@@ -2563,15 +3113,21 @@ function createHttpBuiltin({ kernel, process }) {
           projectId: (_b = process.env.WELFORD_PROJECT_ID) != null ? _b : "default",
           port: assignedPort,
           handler: (socket, request2) => {
+            var _a3;
             const req = new IncomingMessage({
               method: "GET",
               url: request2.path,
               headers: [["upgrade", "websocket"]]
             });
-            if (server.listenerCount("upgrade")) {
-              server.emit("upgrade", req, socket, RuntimeBuffer.alloc(0));
-            } else {
-              server.emit("websocket", socket, req);
+            try {
+              if (server.listenerCount("upgrade")) {
+                server.emit("upgrade", req, socket, RuntimeBuffer.alloc(0));
+              } else {
+                server.emit("websocket", socket, req);
+              }
+            } catch (error) {
+              reportVirtualError(process, error);
+              (_a3 = socket.close) == null ? void 0 : _a3.call(socket, 1011, "Unhandled virtual server error");
             }
           }
         });
@@ -2661,11 +3217,48 @@ function normalizeResponseBody(body) {
   if (typeof body === "string") return new TextEncoder().encode(body);
   return new Uint8Array(body);
 }
+function reportVirtualError(process, error) {
+  var _a2, _b;
+  try {
+    (_b = (_a2 = process.stderr) == null ? void 0 : _a2.write) == null ? void 0 : _b.call(_a2, `${formatErrorForDiagnostics(error)}
+`);
+  } catch (_) {
+  }
+  process.exitCode = 1;
+}
+function virtualServerErrorResponse(error) {
+  var _a2;
+  const message = (_a2 = error == null ? void 0 : error.message) != null ? _a2 : String(error);
+  return {
+    status: 500,
+    statusText: "Internal Server Error",
+    headers: [
+      ["content-type", "text/plain; charset=utf-8"],
+      ["x-welford-error", "unhandled-virtual-server-error"]
+    ],
+    body: new TextEncoder().encode(`Unhandled virtual server error: ${message}
+`)
+  };
+}
+function formatErrorForDiagnostics(error) {
+  var _a2, _b;
+  return (_b = (_a2 = error == null ? void 0 : error.stack) != null ? _a2 : error == null ? void 0 : error.message) != null ? _b : String(error);
+}
 function isVirtualLocalhost(host) {
   return ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].includes(String(host));
 }
 function isDefaultPort(protocol, port) {
   return protocol === "http:" && Number(port) === 80 || protocol === "https:" && Number(port) === 443;
+}
+function isHostPageOrigin(url) {
+  var _a2;
+  const origin = (_a2 = globalThis.location) == null ? void 0 : _a2.origin;
+  if (!origin || origin === "null") return false;
+  try {
+    return url.origin === new URL(origin).origin;
+  } catch (_) {
+    return false;
+  }
 }
 
 // packages/runtime-node/src/builtins/net.js
@@ -2888,6 +3481,410 @@ function createChildProcessBuiltin({ kernel, process }) {
   };
 }
 
+// packages/runtime-node/src/builtins/timers.js
+var nextTimerId = 1;
+function createTimerApi({ process } = {}) {
+  const setTimeoutCompat = (callback, delay = 0, ...args) => {
+    const handle = new WelfordTimerHandle({ kind: "timeout", process, callback, args, delay });
+    handle.start();
+    return handle;
+  };
+  const setIntervalCompat = (callback, delay = 0, ...args) => {
+    const handle = new WelfordTimerHandle({ kind: "interval", process, callback, args, delay, repeat: true });
+    handle.start();
+    return handle;
+  };
+  const setImmediateCompat = (callback, ...args) => {
+    const handle = new WelfordTimerHandle({ kind: "immediate", process, callback, args, delay: 0 });
+    handle.start();
+    return handle;
+  };
+  const clearTimer = (handle) => {
+    if (handle instanceof WelfordTimerHandle) {
+      handle.close();
+      return;
+    }
+    globalThis.clearTimeout(handle);
+    globalThis.clearInterval(handle);
+  };
+  return {
+    clearImmediate: clearTimer,
+    clearInterval: clearTimer,
+    clearTimeout: clearTimer,
+    setImmediate: setImmediateCompat,
+    setInterval: setIntervalCompat,
+    setTimeout: setTimeoutCompat,
+    builtin: {
+      clearImmediate: clearTimer,
+      clearInterval: clearTimer,
+      clearTimeout: clearTimer,
+      setImmediate: setImmediateCompat,
+      setInterval: setIntervalCompat,
+      setTimeout: setTimeoutCompat
+    },
+    promisesBuiltin: {
+      setImmediate: (value) => new Promise((resolve) => setImmediateCompat(() => resolve(value))),
+      setInterval: async function* timersPromisesSetInterval(delay = 1, value) {
+        while (true) {
+          await new Promise((resolve) => setTimeoutCompat(resolve, delay));
+          yield value;
+        }
+      },
+      setTimeout: (delay = 1, value) => new Promise((resolve) => setTimeoutCompat(() => resolve(value), delay))
+    }
+  };
+}
+var WelfordTimerHandle = class {
+  constructor({ kind, process, callback, args = [], delay = 0, repeat = false }) {
+    var _a2, _b, _c, _d;
+    this.kind = kind;
+    this.process = process;
+    this.callback = typeof callback === "function" ? callback : () => {
+    };
+    this.args = args;
+    this.delay = Number(delay) || 0;
+    this.repeat = repeat;
+    this.id = nextTimerId++;
+    this.active = true;
+    this.refed = true;
+    this.refreshedDuringCallback = false;
+    (_b = (_a2 = this.process) == null ? void 0 : _a2.__welfordAddRef) == null ? void 0 : _b.call(_a2);
+    this.disposeExitHook = (_d = (_c = this.process) == null ? void 0 : _c.__welfordOnExit) == null ? void 0 : _d.call(_c, () => this.close({ releaseRef: false }));
+  }
+  start() {
+    if (this.kind === "interval") this.nativeHandle = globalThis.setInterval(() => this.fire(), this.delay);
+    else this.nativeHandle = globalThis.setTimeout(() => this.fire(), this.delay);
+  }
+  clearNativeHandle() {
+    if (this.kind === "interval") globalThis.clearInterval(this.nativeHandle);
+    else globalThis.clearTimeout(this.nativeHandle);
+    this.nativeHandle = null;
+  }
+  fire() {
+    var _a2, _b, _c, _d, _e, _f, _g;
+    if (!this.active) return;
+    if (((_b = (_a2 = this.process) == null ? void 0 : _a2.__welfordIsAlive) == null ? void 0 : _b.call(_a2)) === false) {
+      this.close();
+      return;
+    }
+    this.refreshedDuringCallback = false;
+    try {
+      this.callback(...this.args);
+    } catch (error) {
+      (_g = (_d = (_c = this.process) == null ? void 0 : _c.stderr) == null ? void 0 : _d.write) == null ? void 0 : _g.call(_d, `${(_f = (_e = error == null ? void 0 : error.stack) != null ? _e : error == null ? void 0 : error.message) != null ? _f : error}
+`);
+      this.process.exitCode = 1;
+      this.close();
+      return;
+    }
+    if (!this.repeat && !this.refreshedDuringCallback) this.close();
+  }
+  close({ releaseRef = true } = {}) {
+    var _a2, _b, _c;
+    if (!this.active) return;
+    this.active = false;
+    this.clearNativeHandle();
+    (_a2 = this.disposeExitHook) == null ? void 0 : _a2.call(this);
+    this.disposeExitHook = null;
+    if (releaseRef && this.refed) {
+      this.refed = false;
+      (_c = (_b = this.process) == null ? void 0 : _b.__welfordUnref) == null ? void 0 : _c.call(_b);
+    }
+  }
+  ref() {
+    var _a2, _b;
+    if (this.active && !this.refed) {
+      this.refed = true;
+      (_b = (_a2 = this.process) == null ? void 0 : _a2.__welfordAddRef) == null ? void 0 : _b.call(_a2);
+    }
+    return this;
+  }
+  unref() {
+    var _a2, _b;
+    if (this.active && this.refed) {
+      this.refed = false;
+      (_b = (_a2 = this.process) == null ? void 0 : _a2.__welfordUnref) == null ? void 0 : _b.call(_a2);
+    }
+    return this;
+  }
+  hasRef() {
+    return this.refed;
+  }
+  refresh() {
+    if (!this.active) return this;
+    this.refreshedDuringCallback = true;
+    this.clearNativeHandle();
+    this.start();
+    return this;
+  }
+  [Symbol.toPrimitive]() {
+    return this.id;
+  }
+};
+
+// packages/runtime-node/src/builtins/worker_threads.js
+var nextThreadId = 1;
+function createWorkerThreadsBuiltin({ process, workerContext = null, runWorkerSource }) {
+  var _specifier, _options, _parentPort, _workerPort, _abortController, _disposeExitHook, _exited, _terminated, _exitCode, _refed, _Worker_instances, start_fn, emitWorkerError_fn, forceTerminate_fn, finish_fn, _a2, _b;
+  const isMainThread = !workerContext;
+  class RuntimeMessagePort extends MessagePort {
+    constructor() {
+      super({ process });
+    }
+  }
+  class RuntimeMessageChannel extends MessageChannel2 {
+    constructor() {
+      super({ process });
+    }
+  }
+  class Worker2 extends EventEmitter {
+    constructor(specifier, options = {}) {
+      var _a3, _b2, _c;
+      super();
+      __privateAdd(this, _Worker_instances);
+      __privateAdd(this, _specifier);
+      __privateAdd(this, _options);
+      __privateAdd(this, _parentPort);
+      __privateAdd(this, _workerPort);
+      __privateAdd(this, _abortController);
+      __privateAdd(this, _disposeExitHook);
+      __privateAdd(this, _exited, false);
+      __privateAdd(this, _terminated, false);
+      __privateAdd(this, _exitCode, null);
+      __privateAdd(this, _refed, false);
+      if (typeof runWorkerSource !== "function") {
+        throw Object.assign(new Error("node:worker_threads is unavailable in this runtime"), {
+          code: "ERR_WELFORD_WORKER_THREADS_UNAVAILABLE"
+        });
+      }
+      this.threadId = nextThreadId++;
+      this.resourceLimits = (_a3 = options.resourceLimits) != null ? _a3 : {};
+      this.stdin = null;
+      this.stdout = null;
+      this.stderr = null;
+      this.performance = { eventLoopUtilization: () => ({ idle: 0, active: 0, utilization: 0 }) };
+      __privateSet(this, _specifier, specifier);
+      __privateSet(this, _options, options);
+      __privateSet(this, _parentPort, new RuntimeMessagePort());
+      __privateSet(this, _workerPort, new RuntimeMessagePort());
+      __privateGet(this, _parentPort).__welfordSetPeer(__privateGet(this, _workerPort));
+      __privateGet(this, _workerPort).__welfordSetPeer(__privateGet(this, _parentPort));
+      __privateGet(this, _parentPort).on("message", (message) => this.emit("message", message));
+      __privateGet(this, _parentPort).on("messageerror", (error) => {
+        if (this.listenerCount("messageerror") > 0) this.emit("messageerror", error);
+      });
+      __privateSet(this, _abortController, typeof AbortController === "function" ? new AbortController() : null);
+      __privateSet(this, _refed, true);
+      (_b2 = process == null ? void 0 : process.__welfordAddRef) == null ? void 0 : _b2.call(process);
+      __privateSet(this, _disposeExitHook, (_c = process == null ? void 0 : process.__welfordOnExit) == null ? void 0 : _c.call(process, () => {
+        __privateMethod(this, _Worker_instances, forceTerminate_fn).call(this, 1);
+      }));
+      queueMicrotask(() => __privateMethod(this, _Worker_instances, start_fn).call(this));
+    }
+    postMessage(message) {
+      if (__privateGet(this, _exited) || __privateGet(this, _terminated)) return false;
+      __privateGet(this, _parentPort).postMessage(message);
+      return true;
+    }
+    terminate() {
+      var _a3, _b2;
+      if (__privateGet(this, _exited)) return Promise.resolve((_a3 = __privateGet(this, _exitCode)) != null ? _a3 : 0);
+      __privateMethod(this, _Worker_instances, forceTerminate_fn).call(this, 1);
+      return Promise.resolve((_b2 = __privateGet(this, _exitCode)) != null ? _b2 : 1);
+    }
+    ref() {
+      var _a3;
+      if (!__privateGet(this, _refed) && !__privateGet(this, _exited)) {
+        __privateSet(this, _refed, true);
+        (_a3 = process == null ? void 0 : process.__welfordAddRef) == null ? void 0 : _a3.call(process);
+      }
+      return this;
+    }
+    unref() {
+      var _a3;
+      if (__privateGet(this, _refed)) {
+        __privateSet(this, _refed, false);
+        (_a3 = process == null ? void 0 : process.__welfordUnref) == null ? void 0 : _a3.call(process);
+      }
+      return this;
+    }
+  }
+  _specifier = new WeakMap();
+  _options = new WeakMap();
+  _parentPort = new WeakMap();
+  _workerPort = new WeakMap();
+  _abortController = new WeakMap();
+  _disposeExitHook = new WeakMap();
+  _exited = new WeakMap();
+  _terminated = new WeakMap();
+  _exitCode = new WeakMap();
+  _refed = new WeakMap();
+  _Worker_instances = new WeakSet();
+  start_fn = async function() {
+    var _a3, _b2;
+    if (__privateGet(this, _terminated) || __privateGet(this, _exited)) return;
+    this.emit("online");
+    try {
+      await runWorkerSource(__privateGet(this, _specifier), {
+        eval: __privateGet(this, _options).eval === true,
+        filename: __privateGet(this, _options).name ? `[worker ${__privateGet(this, _options).name}].js` : `[worker ${this.threadId}].js`,
+        parentPort: __privateGet(this, _workerPort),
+        signal: (_a3 = __privateGet(this, _abortController)) == null ? void 0 : _a3.signal,
+        threadId: this.threadId,
+        type: __privateGet(this, _options).type,
+        workerData: cloneMessage(__privateGet(this, _options).workerData)
+      });
+      if (!__privateGet(this, _terminated)) __privateMethod(this, _Worker_instances, finish_fn).call(this, 0);
+    } catch (error) {
+      if (__privateGet(this, _terminated)) return;
+      if ((error == null ? void 0 : error.code) === "WELFORD_PROCESS_EXIT") {
+        __privateMethod(this, _Worker_instances, finish_fn).call(this, (_b2 = error.exitCode) != null ? _b2 : 0);
+        return;
+      }
+      __privateMethod(this, _Worker_instances, emitWorkerError_fn).call(this, error);
+      __privateMethod(this, _Worker_instances, finish_fn).call(this, 1);
+    }
+  };
+  emitWorkerError_fn = function(error) {
+    var _a3, _b2, _c, _d, _e, _f, _g, _h;
+    if (this.listenerCount("error") > 0) {
+      try {
+        this.emit("error", error);
+      } catch (emitError) {
+        (_d = (_a3 = process == null ? void 0 : process.stderr) == null ? void 0 : _a3.write) == null ? void 0 : _d.call(_a3, `${(_c = (_b2 = emitError == null ? void 0 : emitError.stack) != null ? _b2 : emitError == null ? void 0 : emitError.message) != null ? _c : emitError}
+`);
+      }
+      return;
+    }
+    (_h = (_e = process == null ? void 0 : process.stderr) == null ? void 0 : _e.write) == null ? void 0 : _h.call(_e, `${(_g = (_f = error == null ? void 0 : error.stack) != null ? _f : error == null ? void 0 : error.message) != null ? _g : error}
+`);
+  };
+  forceTerminate_fn = function(code) {
+    var _a3, _b2;
+    if (__privateGet(this, _exited)) return;
+    __privateSet(this, _terminated, true);
+    (_b2 = (_a3 = __privateGet(this, _abortController)) == null ? void 0 : _a3.abort) == null ? void 0 : _b2.call(_a3);
+    __privateGet(this, _parentPort).close();
+    __privateGet(this, _workerPort).close();
+    __privateMethod(this, _Worker_instances, finish_fn).call(this, code);
+  };
+  finish_fn = function(code) {
+    var _a3, _b2;
+    if (__privateGet(this, _exited)) return;
+    __privateSet(this, _exited, true);
+    __privateSet(this, _exitCode, Number(code) || 0);
+    __privateGet(this, _workerPort).close();
+    (_a3 = __privateGet(this, _disposeExitHook)) == null ? void 0 : _a3.call(this);
+    __privateSet(this, _disposeExitHook, null);
+    if (__privateGet(this, _refed)) {
+      __privateSet(this, _refed, false);
+      (_b2 = process == null ? void 0 : process.__welfordUnref) == null ? void 0 : _b2.call(process);
+    }
+    this.emit("exit", __privateGet(this, _exitCode));
+  };
+  const builtin = {
+    Worker: Worker2,
+    MessageChannel: RuntimeMessageChannel,
+    MessagePort: RuntimeMessagePort,
+    isMainThread,
+    parentPort: (_a2 = workerContext == null ? void 0 : workerContext.parentPort) != null ? _a2 : null,
+    receiveMessageOnPort,
+    resourceLimits: {},
+    SHARE_ENV: /* @__PURE__ */ Symbol.for("welford.worker_threads.SHARE_ENV"),
+    threadId: (_b = workerContext == null ? void 0 : workerContext.threadId) != null ? _b : 0,
+    workerData: workerContext == null ? void 0 : workerContext.workerData,
+    markAsUntransferable() {
+    },
+    moveMessagePortToContext(port) {
+      return port;
+    }
+  };
+  return builtin;
+}
+var _process2, _peer2, _closed, _queue, _MessagePort_instances, dispatchMessage_fn;
+var MessagePort = class extends EventEmitter {
+  constructor({ process } = {}) {
+    super();
+    __privateAdd(this, _MessagePort_instances);
+    __privateAdd(this, _process2, null);
+    __privateAdd(this, _peer2, null);
+    __privateAdd(this, _closed, false);
+    __privateAdd(this, _queue, []);
+    __publicField(this, "onmessage", null);
+    __publicField(this, "onmessageerror", null);
+    __privateSet(this, _process2, process);
+  }
+  postMessage(message) {
+    var _a2, _b;
+    if (__privateGet(this, _closed) || !__privateGet(this, _peer2) || __privateGet(__privateGet(this, _peer2), _closed)) return;
+    const cloned = cloneMessage(message);
+    (_b = (_a2 = __privateGet(this, _process2)) == null ? void 0 : _a2.__welfordAddRef) == null ? void 0 : _b.call(_a2);
+    queueMicrotask(() => {
+      var _a3, _b2, _c;
+      try {
+        if (__privateGet(this, _peer2) && !__privateGet(__privateGet(this, _peer2), _closed)) __privateMethod(_a3 = __privateGet(this, _peer2), _MessagePort_instances, dispatchMessage_fn).call(_a3, cloned);
+      } finally {
+        (_c = (_b2 = __privateGet(this, _process2)) == null ? void 0 : _b2.__welfordUnref) == null ? void 0 : _c.call(_b2);
+      }
+    });
+  }
+  start() {
+    return this;
+  }
+  close() {
+    if (__privateGet(this, _closed)) return;
+    __privateSet(this, _closed, true);
+    this.emit("close");
+  }
+  ref() {
+    return this;
+  }
+  unref() {
+    return this;
+  }
+  __welfordSetPeer(peer) {
+    __privateSet(this, _peer2, peer);
+  }
+  __welfordQueueMessage(message) {
+    __privateGet(this, _queue).push(cloneMessage(message));
+  }
+  __welfordReceiveMessage() {
+    return __privateGet(this, _queue).length ? { message: __privateGet(this, _queue).shift() } : void 0;
+  }
+};
+_process2 = new WeakMap();
+_peer2 = new WeakMap();
+_closed = new WeakMap();
+_queue = new WeakMap();
+_MessagePort_instances = new WeakSet();
+dispatchMessage_fn = function(message) {
+  this.emit("message", message);
+  if (typeof this.onmessage === "function") {
+    this.onmessage.call(this, { data: message, target: this, currentTarget: this });
+  }
+};
+var MessageChannel2 = class {
+  constructor({ process } = {}) {
+    this.port1 = new MessagePort({ process });
+    this.port2 = new MessagePort({ process });
+    this.port1.__welfordSetPeer(this.port2);
+    this.port2.__welfordSetPeer(this.port1);
+  }
+};
+function receiveMessageOnPort(port) {
+  var _a2;
+  return (_a2 = port == null ? void 0 : port.__welfordReceiveMessage) == null ? void 0 : _a2.call(port);
+}
+function cloneMessage(value) {
+  if (value === void 0) return void 0;
+  if (typeof structuredClone !== "function") return value;
+  try {
+    return structuredClone(value);
+  } catch (_) {
+    return value;
+  }
+}
+
 // packages/runtime-node/src/esm-transform.js
 function transformEsmToCjs(source, { filename }) {
   const exportNames = /* @__PURE__ */ new Map();
@@ -3057,11 +4054,13 @@ var ModuleResolutionError = class extends Error {
     this.fromPath = fromPath;
   }
 };
-var _process2, _fetch;
-var ModuleLoader = class {
+var _process3, _fetch, _timers, _workerThreads;
+var _ModuleLoader = class _ModuleLoader {
   constructor({ kernel, descriptor, console }) {
-    __privateAdd(this, _process2);
+    __privateAdd(this, _process3);
     __privateAdd(this, _fetch);
+    __privateAdd(this, _timers);
+    __privateAdd(this, _workerThreads);
     this.kernel = kernel;
     this.descriptor = descriptor;
     this.console = console;
@@ -3099,11 +4098,18 @@ var ModuleLoader = class {
       "__dirname",
       "process",
       "console",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
       "setImmediate",
       "clearImmediate",
+      "__welfordGlobals",
       "fetch",
       "__welfordDynamicImport",
-      `${executableSource}
+      `with (__welfordGlobals) {
+${executableSource}
+}
 //# sourceURL=welford://${resolved}`
     );
     wrapped(
@@ -3114,8 +4120,13 @@ var ModuleLoader = class {
       dirname(resolved),
       this.process,
       this.console,
-      (callback, ...args) => setTimeout(callback, 0, ...args),
-      clearTimeout,
+      this.timers.setTimeout,
+      this.timers.clearTimeout,
+      this.timers.setInterval,
+      this.timers.clearInterval,
+      this.timers.setImmediate,
+      this.timers.clearImmediate,
+      this.runtimeGlobals,
       this.fetch,
       (specifier2) => this.dynamicImport(specifier2, resolved)
     );
@@ -3145,12 +4156,19 @@ var ModuleLoader = class {
       "__dirname",
       "process",
       "console",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
       "setImmediate",
       "clearImmediate",
+      "__welfordGlobals",
       "fetch",
       "__welfordDynamicImport",
       `return (async () => {
+with (__welfordGlobals) {
 ${executableSource}
+}
 })();
 //# sourceURL=welford://${resolved}`
     );
@@ -3162,22 +4180,47 @@ ${executableSource}
       dirname(resolved),
       this.process,
       this.console,
-      (callback, ...args) => setTimeout(callback, 0, ...args),
-      clearTimeout,
+      this.timers.setTimeout,
+      this.timers.clearTimeout,
+      this.timers.setInterval,
+      this.timers.clearInterval,
+      this.timers.setImmediate,
+      this.timers.clearImmediate,
+      this.runtimeGlobals,
       this.fetch,
       (childSpecifier) => this.dynamicImport(childSpecifier, resolved)
     );
     return module.exports;
   }
   get process() {
-    if (!__privateGet(this, _process2)) {
-      __privateSet(this, _process2, createProcessBuiltin({ descriptor: this.descriptor, kernel: this.kernel }));
+    if (!__privateGet(this, _process3)) {
+      __privateSet(this, _process3, createProcessBuiltin({ descriptor: this.descriptor, kernel: this.kernel }));
     }
-    return __privateGet(this, _process2);
+    return __privateGet(this, _process3);
   }
   get fetch() {
     if (!__privateGet(this, _fetch)) __privateSet(this, _fetch, createRuntimeFetch({ kernel: this.kernel, process: this.process }));
     return __privateGet(this, _fetch);
+  }
+  get timers() {
+    if (!__privateGet(this, _timers)) __privateSet(this, _timers, createTimerApi({ process: this.process }));
+    return __privateGet(this, _timers);
+  }
+  get workerThreads() {
+    if (!__privateGet(this, _workerThreads)) {
+      __privateSet(this, _workerThreads, createWorkerThreadsBuiltin({
+        process: this.process,
+        workerContext: this.descriptor.workerContext,
+        runWorkerSource: (specifier, options) => this.runWorkerSource(specifier, options)
+      }));
+    }
+    return __privateGet(this, _workerThreads);
+  }
+  get runtimeGlobals() {
+    return {
+      MessageChannel: this.workerThreads.MessageChannel,
+      MessagePort: this.workerThreads.MessagePort
+    };
   }
   loadCoreModule(specifier) {
     const normalized = specifier.startsWith("node:") ? specifier.slice(5) : specifier;
@@ -3211,7 +4254,9 @@ ${executableSource}
       "tty",
       "readline",
       "timers",
-      "timers/promises"
+      "timers/promises",
+      "tls",
+      "worker_threads"
     ].includes(name);
   }
   instantiateCoreModule(name) {
@@ -3249,8 +4294,10 @@ ${executableSource}
     if (name === "querystring") return querystringBuiltin;
     if (name === "crypto") return this.createCryptoBuiltin();
     if (name === "zlib") return this.createZlibBuiltin();
-    if (name === "timers") return timersBuiltin;
-    if (name === "timers/promises") return timersPromisesBuiltin;
+    if (name === "timers") return this.timers.builtin;
+    if (name === "timers/promises") return this.timers.promisesBuiltin;
+    if (name === "tls") return tlsBuiltin;
+    if (name === "worker_threads") return this.workerThreads;
     throw new Error(`Unsupported core module: ${name}`);
   }
   promisify(fn) {
@@ -3268,18 +4315,124 @@ ${executableSource}
     }));
     return promise;
   }
+  async runWorkerSource(specifier, options = {}) {
+    var _a2, _b, _c, _d, _e;
+    const workerDescriptor = {
+      pid: this.descriptor.pid,
+      ppid: this.descriptor.pid,
+      cwd: this.descriptor.cwd,
+      argv: ["node", (_a2 = options.filename) != null ? _a2 : "[worker].js"],
+      env: { ...this.descriptor.env },
+      status: "running",
+      stdin: this.descriptor.stdin,
+      stdout: this.descriptor.stdout,
+      stderr: this.descriptor.stderr,
+      projectId: this.descriptor.projectId,
+      workerContext: {
+        parentPort: options.parentPort,
+        threadId: options.threadId,
+        workerData: options.workerData
+      }
+    };
+    const workerLoader = new _ModuleLoader({
+      kernel: this.kernel,
+      descriptor: workerDescriptor,
+      console: this.console
+    });
+    try {
+      if ((_b = options.signal) == null ? void 0 : _b.aborted) return;
+      if (options.eval) {
+        const filename = resolvePath(this.descriptor.cwd, (_d = options.filename) != null ? _d : `[worker-${(_c = options.threadId) != null ? _c : "eval"}].js`);
+        await workerLoader.evaluateWorkerSource(String(specifier != null ? specifier : ""), filename, { type: options.type });
+      } else {
+        const parentFilename = resolvePath(this.descriptor.cwd, "[worker-entry].js");
+        const filename = workerLoader.resolve(String(specifier), parentFilename);
+        await workerLoader.import(filename, parentFilename);
+      }
+      await waitForWorkerIdle(workerDescriptor, options.signal);
+    } finally {
+      workerDescriptor.status = ((_e = options.signal) == null ? void 0 : _e.aborted) ? "killed" : "exited";
+      cleanupWorkerDescriptor(workerDescriptor);
+    }
+  }
+  async evaluateWorkerSource(source, filename, { type } = {}) {
+    const executableSource = type === "module" || looksLikeEsm(source) ? transformEsmToCjs(source, { filename }) : source;
+    const module = { id: filename, filename, exports: {} };
+    const require2 = this.createRequire(filename);
+    const wrapped = new Function(
+      "exports",
+      "require",
+      "module",
+      "__filename",
+      "__dirname",
+      "process",
+      "console",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
+      "setImmediate",
+      "clearImmediate",
+      "__welfordGlobals",
+      "fetch",
+      "__welfordDynamicImport",
+      `return (async () => {
+with (__welfordGlobals) {
+${executableSource}
+}
+})();
+//# sourceURL=welford://${filename}`
+    );
+    await wrapped(
+      module.exports,
+      require2,
+      module,
+      filename,
+      dirname(filename),
+      this.process,
+      this.console,
+      this.timers.setTimeout,
+      this.timers.clearTimeout,
+      this.timers.setInterval,
+      this.timers.clearInterval,
+      this.timers.setImmediate,
+      this.timers.clearImmediate,
+      this.runtimeGlobals,
+      this.fetch,
+      (specifier) => this.dynamicImport(specifier, filename)
+    );
+    return module.exports;
+  }
   createCryptoBuiltin() {
+    const randomBytes = (size, callback) => {
+      var _a2, _b, _c, _d;
+      const bytes = new Uint8Array(size);
+      (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.getRandomValues) == null ? void 0 : _b.call(_a2, bytes);
+      const buffer = RuntimeBuffer.from(bytes);
+      if (typeof callback === "function") {
+        (_d = (_c = this.process).__welfordAddRef) == null ? void 0 : _d.call(_c);
+        queueMicrotask(() => {
+          var _a3, _b2, _c2, _d2, _e, _f, _g, _h;
+          try {
+            if (((_b2 = (_a3 = this.process).__welfordIsAlive) == null ? void 0 : _b2.call(_a3)) !== false) callback(null, buffer);
+          } catch (error) {
+            (_f = (_c2 = this.process.stderr) == null ? void 0 : _c2.write) == null ? void 0 : _f.call(_c2, `${(_e = (_d2 = error == null ? void 0 : error.stack) != null ? _d2 : error == null ? void 0 : error.message) != null ? _e : error}
+`);
+            this.process.exitCode = 1;
+          } finally {
+            (_h = (_g = this.process).__welfordUnref) == null ? void 0 : _h.call(_g);
+          }
+        });
+        return void 0;
+      }
+      return buffer;
+    };
     return {
       randomUUID: () => {
         var _a2, _b, _c;
         return (_c = (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) == null ? void 0 : _b.call(_a2)) != null ? _c : `welford-${Math.random().toString(16).slice(2)}`;
       },
-      randomBytes: (size) => {
-        var _a2, _b;
-        const bytes = new Uint8Array(size);
-        (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.getRandomValues) == null ? void 0 : _b.call(_a2, bytes);
-        return RuntimeBuffer.from(bytes);
-      },
+      randomBytes,
       createHash: (algorithm) => {
         const chunks = [];
         return {
@@ -3409,7 +4562,7 @@ ${executableSource}
       return null;
     }
     if (typeof target === "object") {
-      for (const condition of ["browser", "require", "import", "node", "default"]) {
+      for (const condition of ["require", "import", "node", "default", "browser"]) {
         if (condition in target) {
           const resolved = this.resolvePackageExportTarget(target[condition]);
           if (resolved) return resolved;
@@ -3444,10 +4597,47 @@ ${executableSource}
     }
   }
 };
-_process2 = new WeakMap();
+_process3 = new WeakMap();
 _fetch = new WeakMap();
+_timers = new WeakMap();
+_workerThreads = new WeakMap();
+var ModuleLoader = _ModuleLoader;
 function stripResourceQuery(specifier) {
   return String(specifier).replace(/[?#].*$/, "");
+}
+function waitForWorkerIdle(descriptor, signal) {
+  var _a2;
+  if (((_a2 = descriptor.refCount) != null ? _a2 : 0) === 0 || (signal == null ? void 0 : signal.aborted)) return Promise.resolve();
+  return new Promise((resolve) => {
+    var _a3;
+    const previousOnIdle = descriptor.onIdle;
+    const finish = () => {
+      var _a4;
+      if (descriptor.onIdle === onIdle) descriptor.onIdle = previousOnIdle;
+      (_a4 = signal == null ? void 0 : signal.removeEventListener) == null ? void 0 : _a4.call(signal, "abort", finish);
+      resolve();
+    };
+    const onIdle = () => {
+      var _a4;
+      previousOnIdle == null ? void 0 : previousOnIdle();
+      if (((_a4 = descriptor.refCount) != null ? _a4 : 0) === 0) finish();
+    };
+    descriptor.onIdle = onIdle;
+    (_a3 = signal == null ? void 0 : signal.addEventListener) == null ? void 0 : _a3.call(signal, "abort", finish, { once: true });
+  });
+}
+function cleanupWorkerDescriptor(descriptor) {
+  var _a2, _b;
+  const cleanupTasks = [...(_a2 = descriptor.cleanupTasks) != null ? _a2 : []];
+  (_b = descriptor.cleanupTasks) == null ? void 0 : _b.clear();
+  descriptor.refCount = 0;
+  descriptor.onIdle = null;
+  for (const cleanup of cleanupTasks) {
+    try {
+      cleanup();
+    } catch (_) {
+    }
+  }
 }
 function createUtilBuiltin({ console, promisify }) {
   const util = {
@@ -3467,11 +4657,11 @@ function createUtilBuiltin({ console, promisify }) {
     deprecate(fn, message, code) {
       let warned = false;
       return function deprecatedFunction(...args) {
-        var _a2, _b;
+        var _a2;
         if (!warned) {
           warned = true;
           const warning = code ? `${code}: ${message}` : message;
-          (_b = (_a2 = console) == null ? void 0 : _a2.warn) == null ? void 0 : _b.call(_a2, warning);
+          (_a2 = console == null ? void 0 : console.warn) == null ? void 0 : _a2.call(console, warning);
         }
         return fn.apply(this, args);
       };
@@ -3503,7 +4693,7 @@ function createUtilBuiltin({ console, promisify }) {
       isUint8Array: (value) => value instanceof Uint8Array
     }
   };
-  util.promisify.custom = Symbol.for("nodejs.util.promisify.custom");
+  util.promisify.custom = /* @__PURE__ */ Symbol.for("nodejs.util.promisify.custom");
   return util;
 }
 function format(first, ...args) {
@@ -3531,9 +4721,10 @@ function format(first, ...args) {
   return rest.length ? `${formatted} ${rest.join(" ")}` : formatted;
 }
 function inspect(value, options = {}) {
+  var _a2;
   if (typeof value === "string") return value;
   if (typeof value === "function") return `[Function${value.name ? `: ${value.name}` : ""}]`;
-  if (value instanceof Error) return value.stack ?? `${value.name}: ${value.message}`;
+  if (value instanceof Error) return (_a2 = value.stack) != null ? _a2 : `${value.name}: ${value.message}`;
   try {
     return JSON.stringify(value, null, (options == null ? void 0 : options.compact) === false ? 2 : 0);
   } catch (_) {
@@ -3580,28 +4771,21 @@ function decodeQueryComponent(value) {
     return String(value);
   }
 }
-var setImmediateCompat = (callback, ...args) => setTimeout(callback, 0, ...args);
-var clearImmediateCompat = (handle) => clearTimeout(handle);
-var timersBuiltin = {
-  clearImmediate: clearImmediateCompat,
-  clearInterval,
-  clearTimeout,
-  setImmediate: setImmediateCompat,
-  setInterval,
-  setTimeout
+var TLSSocket = class {
 };
-var timersPromisesBuiltin = {
-  setImmediate: (value) => new Promise((resolve) => setImmediateCompat(() => resolve(value))),
-  setInterval: async function* timersPromisesSetInterval(delay = 1, value) {
-    while (true) {
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      yield value;
-    }
+var tlsBuiltin = {
+  TLSSocket,
+  connect() {
+    throw Object.assign(new Error("node:tls client sockets are not supported in Welford Containers V1"), {
+      code: "ERR_WELFORD_TLS_UNSUPPORTED"
+    });
   },
-  setTimeout: (delay = 1, value) => new Promise((resolve) => setTimeout(() => resolve(value), delay))
+  createSecureContext: () => ({}),
+  rootCertificates: []
 };
 function createRuntimeFetch({ kernel, process }) {
   return async function welfordFetch(input, init = {}) {
+    var _a2, _b, _c, _d, _e;
     const request = normalizeFetchRequest(input, init);
     const url = new URL(request.url);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -3609,10 +4793,9 @@ function createRuntimeFetch({ kernel, process }) {
       return globalThis.fetch(input, init);
     }
     if (isVirtualFetchHost(url.hostname)) {
-      const requestId = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2);
       const response = await kernel.dispatchHttpRequest({
-        id: requestId,
-        projectId: process.env.WELFORD_PROJECT_ID ?? "default",
+        id: (_c = (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) == null ? void 0 : _b.call(_a2)) != null ? _c : Math.random().toString(16).slice(2),
+        projectId: (_d = process.env.WELFORD_PROJECT_ID) != null ? _d : "default",
         port: Number(url.port) || 80,
         method: request.method,
         url: `${url.pathname}${url.search}`,
@@ -3620,6 +4803,11 @@ function createRuntimeFetch({ kernel, process }) {
         body: request.body
       });
       return responseFromVirtual(response);
+    }
+    if (isHostPageOrigin2(url)) {
+      throw Object.assign(new Error(`Host application request blocked: ${url.href}`), {
+        code: "ERR_WELFORD_HOST_ORIGIN_BLOCKED"
+      });
     }
     if (kernel.allowExternalNetwork !== true) {
       throw Object.assign(new Error(`External network request blocked: ${url.href}`), {
@@ -3634,7 +4822,7 @@ function createRuntimeFetch({ kernel, process }) {
     try {
       return await globalThis.fetch(input, init);
     } catch (error) {
-      throw Object.assign(new Error(`External fetch failed for ${url.href}: ${(error == null ? void 0 : error.message) ?? error}. Browser CORS and network restrictions still apply in Welford Containers.`), {
+      throw Object.assign(new Error(`External fetch failed for ${url.href}: ${(_e = error == null ? void 0 : error.message) != null ? _e : error}. Browser CORS and network restrictions still apply in Welford Containers.`), {
         code: "ERR_WELFORD_EXTERNAL_FETCH_FAILED",
         cause: error
       });
@@ -3642,11 +4830,12 @@ function createRuntimeFetch({ kernel, process }) {
   };
 }
 function normalizeFetchRequest(input, init = {}) {
+  var _a2, _b, _c, _d;
   const url = typeof input === "string" || input instanceof URL ? String(input) : input == null ? void 0 : input.url;
   if (!url) throw new TypeError("fetch requires a URL");
-  const method = String(init.method ?? (input == null ? void 0 : input.method) ?? "GET").toUpperCase();
-  const headers = normalizeFetchHeaders(init.headers ?? (input == null ? void 0 : input.headers));
-  const body = method === "GET" || method === "HEAD" ? void 0 : init.body ?? (input == null ? void 0 : input.body);
+  const method = String((_b = (_a2 = init.method) != null ? _a2 : input == null ? void 0 : input.method) != null ? _b : "GET").toUpperCase();
+  const headers = normalizeFetchHeaders((_c = init.headers) != null ? _c : input == null ? void 0 : input.headers);
+  const body = method === "GET" || method === "HEAD" ? void 0 : (_d = init.body) != null ? _d : input == null ? void 0 : input.body;
   return {
     url,
     method,
@@ -3668,14 +4857,25 @@ function bodyToUint8Array(body) {
   return body;
 }
 function responseFromVirtual(response) {
-  return new Response(response.body ?? "", {
-    status: response.status ?? 200,
-    statusText: response.statusText ?? "OK",
-    headers: response.headers ?? []
+  var _a2, _b, _c, _d;
+  return new Response((_a2 = response.body) != null ? _a2 : "", {
+    status: (_b = response.status) != null ? _b : 200,
+    statusText: (_c = response.statusText) != null ? _c : "OK",
+    headers: (_d = response.headers) != null ? _d : []
   });
 }
 function isVirtualFetchHost(hostname) {
   return ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].includes(hostname);
+}
+function isHostPageOrigin2(url) {
+  var _a2;
+  const origin = (_a2 = globalThis.location) == null ? void 0 : _a2.origin;
+  if (!origin || origin === "null") return false;
+  try {
+    return url.origin === new URL(origin).origin;
+  } catch (_) {
+    return false;
+  }
 }
 
 // packages/runtime-node/src/NodeRuntime.js
@@ -3687,15 +4887,15 @@ var NodeRuntime = class {
     this.loader = new ModuleLoader({ kernel, descriptor, console: this.console });
   }
   createConsole() {
-    const write = (stream, args) => {
+    const write2 = (stream, args) => {
       stream.write(`${args.map((arg) => typeof arg === "string" ? arg : JSON.stringify(arg)).join(" ")}
 `);
     };
     return {
-      log: (...args) => write(this.descriptor.stdout, args),
-      info: (...args) => write(this.descriptor.stdout, args),
-      warn: (...args) => write(this.descriptor.stderr, args),
-      error: (...args) => write(this.descriptor.stderr, args)
+      log: (...args) => write2(this.descriptor.stdout, args),
+      info: (...args) => write2(this.descriptor.stdout, args),
+      warn: (...args) => write2(this.descriptor.stderr, args),
+      error: (...args) => write2(this.descriptor.stderr, args)
     };
   }
   async execute(args) {
@@ -3753,11 +4953,18 @@ var NodeRuntime = class {
       "__dirname",
       "process",
       "console",
+      "setTimeout",
+      "clearTimeout",
+      "setInterval",
+      "clearInterval",
       "setImmediate",
       "clearImmediate",
+      "__welfordGlobals",
       "fetch",
       "__welfordDynamicImport",
-      `${source}
+      `with (__welfordGlobals) {
+${source}
+}
 //# sourceURL=welford://${filename}`
     );
     wrapped(
@@ -3768,8 +4975,13 @@ var NodeRuntime = class {
       dirname(filename),
       this.loader.process,
       this.console,
-      (callback, ...args) => setTimeout(callback, 0, ...args),
-      clearTimeout,
+      this.loader.timers.setTimeout,
+      this.loader.timers.clearTimeout,
+      this.loader.timers.setInterval,
+      this.loader.timers.clearInterval,
+      this.loader.timers.setImmediate,
+      this.loader.timers.clearImmediate,
+      this.loader.runtimeGlobals,
       this.loader.fetch,
       (specifier) => this.loader.dynamicImport(specifier, filename)
     );
@@ -3851,6 +5063,7 @@ var ProcessWorkerHost = class extends EventEmitter {
     this.runtime = new NodeRuntime({ kernel: this.kernel, descriptor: this.descriptor });
   }
   async run(id, args) {
+    var _a2, _b;
     if (!this.runtime) throw new Error("Process worker has not booted");
     this.descriptor.status = "running";
     this.running = this.runtime.execute(args);
@@ -3858,14 +5071,17 @@ var ProcessWorkerHost = class extends EventEmitter {
     if ((status != null ? status : 0) === 0 && this.shouldStayAlive()) {
       status = await new Promise((resolve) => {
         this.descriptor.onIdle = () => {
+          var _a3, _b2;
           if (!this.shouldStayAlive()) {
             this.descriptor.onIdle = null;
-            resolve(status != null ? status : 0);
+            resolve((_b2 = (_a3 = this.descriptor.exitCode) != null ? _a3 : status) != null ? _b2 : 0);
           }
         };
       });
     }
+    status = (_b = (_a2 = this.descriptor.exitCode) != null ? _a2 : status) != null ? _b : 0;
     this.descriptor.status = "exited";
+    this.runCleanupTasks();
     this.postMessage({ type: "exit", requestId: id, pid: this.descriptor.pid, status });
     this.reply(id, { ok: true, status });
   }
@@ -3878,7 +5094,19 @@ var ProcessWorkerHost = class extends EventEmitter {
   signal(signal) {
     if (!this.descriptor) return;
     this.descriptor.status = "killed";
+    this.runCleanupTasks();
     this.postMessage({ type: "signal", pid: this.descriptor.pid, signal });
+  }
+  runCleanupTasks() {
+    var _a2, _b, _c, _d;
+    const cleanupTasks = [...(_b = (_a2 = this.descriptor) == null ? void 0 : _a2.cleanupTasks) != null ? _b : []];
+    (_d = (_c = this.descriptor) == null ? void 0 : _c.cleanupTasks) == null ? void 0 : _d.clear();
+    for (const cleanup of cleanupTasks) {
+      try {
+        cleanup();
+      } catch (_) {
+      }
+    }
   }
   stream(name) {
     return {
@@ -4007,10 +5235,19 @@ var VirtualProcess = class extends EventEmitter {
     });
   }
   finish(code = 0, signal = null) {
+    var _a2, _b;
     if (this.exitCode !== null) return;
     this.exitCode = code;
     this.signalCode = signal;
     this.descriptor.status = "exited";
+    const cleanupTasks = [...(_a2 = this.descriptor.cleanupTasks) != null ? _a2 : []];
+    (_b = this.descriptor.cleanupTasks) == null ? void 0 : _b.clear();
+    for (const cleanup of cleanupTasks) {
+      try {
+        cleanup();
+      } catch (_) {
+      }
+    }
     this.emit("exit", code, signal);
     this.emit("close", code, signal);
     __privateGet(this, _resolveCompleted).call(this, { pid: this.pid, status: code, signal, stdout: this.stdout.toBuffer(), stderr: this.stderr.toBuffer() });
@@ -4151,18 +5388,22 @@ run_fn = async function(process, command, args) {
     } else {
       throw Object.assign(new Error(`Unsupported command: ${command}`), { code: "ENOENT" });
     }
+    const finalStatus = () => {
+      var _a2, _b;
+      return (_b = (_a2 = process.descriptor.exitCode) != null ? _a2 : status) != null ? _b : 0;
+    };
     if ((status != null ? status : 0) === 0 && (this.kernel.portManager.hasPid(process.pid) || this.kernel.net.hasPid(process.pid) || process.descriptor.refCount > 0)) {
       process.descriptor.status = "running";
       process.descriptor.onIdle = () => {
         if (!this.kernel.portManager.hasPid(process.pid) && !this.kernel.net.hasPid(process.pid) && process.descriptor.refCount === 0) {
           process.descriptor.onIdle = null;
-          process.finish(status != null ? status : 0);
+          process.finish(finalStatus());
           this.kernel.unregisterPortsForPid(process.pid);
         }
       };
       return;
     }
-    process.finish(status != null ? status : 0);
+    process.finish(finalStatus());
   } catch (error) {
     process.fail(error);
   } finally {
@@ -4638,15 +5879,15 @@ var _WelfordContainer = class _WelfordContainer {
     this.listeners.clear();
   }
   async dispatchPreviewRequest(request) {
-    var _a2, _b, _c, _d;
-    const preview = parseWelfordPreviewUrl(request.url, this.previewBasePath);
+    var _a2, _b, _c, _d, _e;
+    const preview = parsePreviewRequest(request, this.previewBasePath, this.projectId);
     const response = await this.kernel.dispatchHttpRequest({
       id: (_a2 = request.id) != null ? _a2 : randomId(),
-      projectId: (_b = preview.projectId) != null ? _b : this.projectId,
+      projectId: (_c = (_b = preview.projectId) != null ? _b : request.projectId) != null ? _c : this.projectId,
       port: preview.port,
-      method: (_c = request.method) != null ? _c : "GET",
+      method: (_d = request.method) != null ? _d : "GET",
       url: `${preview.path}${preview.search}`,
-      headers: (_d = request.headers) != null ? _d : [],
+      headers: (_e = request.headers) != null ? _e : [],
       body: request.body
     });
     return {
@@ -4659,6 +5900,10 @@ _WelfordContainer_instances = new WeakSet();
 handlePortRegister_fn = function(entry) {
   if (entry.projectId !== this.projectId) return;
   const url = __privateMethod(this, _WelfordContainer_instances, previewUrl_fn).call(this, entry.port);
+  if (this.registerServiceWorker && !this.serviceWorkerPort) {
+    __privateMethod(this, _WelfordContainer_instances, emit_fn2).call(this, "error", new Error(`Server is listening on port ${entry.port}, but browser previews are not available because the Welford preview Service Worker is not controlling this page. Reload the page and run again.`));
+    return;
+  }
   __privateMethod(this, _WelfordContainer_instances, emit_fn2).call(this, "port", entry.port, "open", url);
   __privateMethod(this, _WelfordContainer_instances, emit_fn2).call(this, "server-ready", entry.port, url);
 };
@@ -4765,14 +6010,9 @@ function waitForServiceWorkerController(serviceWorker, timeoutMs) {
 }
 async function resolveServiceWorkerMessageTarget({
   serviceWorker,
-  registration,
-  readyRegistration,
   timeoutMs
 }) {
-  var _a2, _b, _c;
   if (serviceWorker.controller) return serviceWorker.controller;
-  const activeWorker = (_c = (_b = (_a2 = readyRegistration == null ? void 0 : readyRegistration.active) != null ? _a2 : registration == null ? void 0 : registration.active) != null ? _b : registration == null ? void 0 : registration.waiting) != null ? _c : null;
-  if (activeWorker == null ? void 0 : activeWorker.postMessage) return activeWorker;
   return waitForServiceWorkerController(serviceWorker, timeoutMs);
 }
 var WebContainer = WelfordContainer;
@@ -4794,16 +6034,35 @@ function flattenWebContainerTree(tree, prefix = "") {
 function parseWelfordPreviewUrl(url, previewBasePath = "/welford/preview") {
   const parsed = new URL(url, "https://run.welford.local");
   const base = previewBasePath.replace(/\/$/, "");
-  const escapedBase = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = parsed.pathname.match(new RegExp(`^${escapedBase}/([^/]+)(/.*)?$`));
-  if (!match) throw new Error(`Not a Welford preview URL: ${parsed.pathname}`);
-  const [projectPart, portPart] = decodeURIComponent(match[1]).split(":");
+  const marker = `${base}/`;
+  const markerIndex = parsed.pathname.lastIndexOf(marker);
+  if (markerIndex === -1) throw new Error(`Not a Welford preview URL: ${parsed.pathname}`);
+  const rest = parsed.pathname.slice(markerIndex + marker.length);
+  const slashIndex = rest.indexOf("/");
+  const projectSegment = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
+  const [projectPart, portPart] = decodeURIComponent(projectSegment).split(":");
   return {
     projectId: projectPart,
     port: Number(portPart),
-    path: match[2] || "/",
+    path: slashIndex === -1 ? "/" : rest.slice(slashIndex),
     search: parsed.search
   };
+}
+function parsePreviewRequest(request, previewBasePath, fallbackProjectId) {
+  var _a2;
+  try {
+    return parseWelfordPreviewUrl(request.url, previewBasePath);
+  } catch (error) {
+    const port = Number(request.port);
+    if (!Number.isFinite(port) || port <= 0) throw error;
+    const parsed = new URL(request.url || "/", "https://run.welford.local");
+    return {
+      projectId: (_a2 = request.projectId) != null ? _a2 : fallbackProjectId,
+      port,
+      path: parsed.pathname || "/",
+      search: parsed.search
+    };
+  }
 }
 function createWelfordServiceWorkerScript({ previewBasePath = "/welford/preview" } = {}) {
   return `

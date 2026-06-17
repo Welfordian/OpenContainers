@@ -9,6 +9,9 @@
     "./packages/embed/dist/webcontainer-compatible.js": "./packages/embed/dist/webcontainer-compatible.js"
   },
   "scripts": {
+    "run:dev": "npm --prefix apps/run-welford run dev",
+    "run:build": "npm --prefix apps/run-welford run build",
+    "run:pages:dev": "npm --prefix apps/run-welford run pages:dev",
     "test": "node --test tests/*.test.mjs",
     "test:milestones": "node --test tests/milestones.test.mjs"
   },

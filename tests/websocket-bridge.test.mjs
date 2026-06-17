@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Kernel } from "../packages/kernel/src/Kernel.js";
 import { KernelWorkerHost } from "../packages/kernel/src/kernel-worker-host.js";
-import { createParentBridge, mapPreviewRequestUrl } from "../packages/preview-client/src/index.js";
+import { createParentBridge, installPreviewClient, mapPreviewRequestUrl, mapPreviewWebSocketRequest } from "../packages/preview-client/src/index.js";
 
 test("virtual http upgrade handlers can exchange WebSocket messages through the kernel", async () => {
   const kernel = new Kernel();
@@ -27,6 +27,27 @@ test("virtual http upgrade handlers can exchange WebSocket messages through the 
   await eventually(() => messages.length === 2);
 
   assert.deepEqual(messages, ["ready:/hmr", "echo:ping"]);
+  process.kill("SIGTERM");
+});
+
+test("virtual WebSocket upgrade handler errors stay inside the server process", async () => {
+  const kernel = new Kernel();
+  kernel.fs.writeFileSync("/workspace/server.js", `
+    const http = require('http');
+    const server = http.createServer((req, res) => res.end('ok'));
+    server.on('upgrade', () => {
+      throw new Error('upgrade boom');
+    });
+    server.listen(3000);
+  `);
+
+  const process = kernel.spawn("node", ["server.js"], { cwd: "/workspace", projectId: "demo" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.doesNotThrow(() => {
+    kernel.connectWebSocket({ projectId: "demo", port: 3000, path: "/socket.io/" });
+  });
+  assert.match(process.stderr.toString(), /upgrade boom/);
   process.kill("SIGTERM");
 });
 
@@ -169,6 +190,61 @@ test("preview parent bridge proxies fetches through the parent frame", async () 
   assert.equal(await response.text(), "proxied");
 });
 
+test("preview client proxies virtual XMLHttpRequest through the parent frame", async () => {
+  const parentMessages = [];
+  const win = new FakeWindow({
+    href: "about:srcdoc",
+    origin: "null",
+    parent: {
+      postMessage: (message, origin) => parentMessages.push({ message, origin })
+    }
+  });
+  win.__WELFORD_PREVIEW__ = {
+    parentOrigin: "https://run.welford.local",
+    previewOrigin: "https://run.welford.local",
+    baseUrl: "https://run.welford.local/p/demo/",
+    projectId: "demo",
+    defaultPort: 3000
+  };
+  win.console = { log() {}, warn() {}, error() {}, info() {} };
+  win.fetch = async () => {
+    throw new Error("native fetch should not be used");
+  };
+  win.WebSocket = class {};
+  win.XMLHttpRequest = class {};
+
+  installPreviewClient({ win });
+
+  const xhr = new win.XMLHttpRequest();
+  const loaded = new Promise((resolve) => {
+    xhr.onload = resolve;
+  });
+  xhr.open("POST", "/socket.io/?EIO=4&transport=polling&sid=abc");
+  xhr.setRequestHeader("content-type", "text/plain;charset=UTF-8");
+  xhr.send("40");
+
+  assert.equal(parentMessages[0].origin, "https://run.welford.local");
+  assert.equal(parentMessages[0].message.type, "welford:fetch:request");
+  assert.equal(parentMessages[0].message.method, "POST");
+  assert.equal(parentMessages[0].message.body, "40");
+  assert.match(parentMessages[0].message.url, /\/p\/demo:3000\/socket\.io\/\?EIO=4&transport=polling&sid=abc$/);
+
+  const body = new TextEncoder().encode("ok").buffer;
+  win.dispatchMessage({
+    type: "welford:fetch:response",
+    id: parentMessages[0].message.id,
+    ok: true,
+    status: 200,
+    statusText: "OK",
+    headers: [["content-type", "text/plain"]],
+    body
+  });
+
+  await loaded;
+  assert.equal(xhr.status, 200);
+  assert.equal(xhr.responseText, "ok");
+});
+
 test("preview request URL mapper routes localhost and root-relative fetches to preview URLs", () => {
   const config = {
     projectId: "demo",
@@ -186,8 +262,40 @@ test("preview request URL mapper routes localhost and root-relative fetches to p
     "https://run.welford.local/p/demo:3000/api/health"
   );
   assert.equal(
+    mapPreviewRequestUrl("https://run.welford.local/api/private", config, "about:srcdoc"),
+    "https://run.welford.local/p/demo:3000/api/private"
+  );
+  assert.equal(
     mapPreviewRequestUrl("client.js", config, "about:srcdoc"),
     "https://run.welford.local/p/demo/client.js"
+  );
+});
+
+test("preview WebSocket mapper routes same-host sockets to the virtual port", () => {
+  const config = {
+    projectId: "demo",
+    defaultPort: 3000,
+    previewOrigin: "https://run.welford.local",
+    baseUrl: "https://run.welford.local/p/demo/"
+  };
+
+  assert.deepEqual(
+    mapPreviewWebSocketRequest("/socket.io/?EIO=4", ["polling"], config, "about:srcdoc"),
+    {
+      projectId: "demo",
+      port: 3000,
+      path: "/socket.io/?EIO=4",
+      protocols: ["polling"]
+    }
+  );
+  assert.deepEqual(
+    mapPreviewWebSocketRequest("wss://run.welford.local/socket.io/?EIO=4", undefined, config, "about:srcdoc"),
+    {
+      projectId: "demo",
+      port: 3000,
+      path: "/socket.io/?EIO=4",
+      protocols: undefined
+    }
   );
 });
 
