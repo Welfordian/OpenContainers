@@ -1,0 +1,7 @@
+{
+  "projectId": "fixture-express-basic",
+  "port": 3000,
+  "path": "/hello",
+  "status": 200,
+  "bodyContains": "express-basic:/hello"
+}

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Welford Containers</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">W</span>
+          <span>Welford Containers</span>
+        </div>
+        <div class="toolbar" role="toolbar" aria-label="Runtime controls">
+          <button id="run-dev" title="Run npm script">Run Dev</button>
+          <button id="save-file" title="Save current file">Save</button>
+          <button id="stop-all" title="Stop running processes">Stop</button>
+          <button id="clear-node-modules" title="Clear installed packages">Clear Modules</button>
+          <button id="reset-fs" title="Reset project files">Reset</button>
+        </div>
+      </header>
+
+      <section class="workbench">
+        <aside class="sidebar" aria-label="Project files">
+          <div class="panel-title">Files</div>
+          <ol id="file-list" class="file-list"></ol>
+        </aside>
+
+        <section class="editor-pane" aria-label="Editor">
+          <div class="editor-title">
+            <span id="current-file">/workspace/server.js</span>
+            <span id="runtime-status">Idle</span>
+          </div>
+          <textarea id="editor" spellcheck="false"></textarea>
+        </section>
+
+        <section class="preview-pane" aria-label="Preview">
+          <div class="preview-title">
+            <span>Preview</span>
+            <a id="preview-link" href="/p/demo/" target="_blank" rel="noreferrer">/p/demo/</a>
+          </div>
+          <iframe
+            id="preview"
+            title="Project preview"
+          ></iframe>
+        </section>
+      </section>
+
+      <section class="bottom-dock">
+        <section class="terminal-pane" aria-label="Terminal">
+          <div class="panel-title">Terminal</div>
+          <pre id="terminal" tabindex="0"></pre>
+          <form id="command-form" autocomplete="off">
+            <span>$</span>
+            <input id="command-input" value="npm run dev" aria-label="Command" />
+          </form>
+        </section>
+
+        <aside class="permissions" aria-label="Permissions">
+          <div class="panel-title">Permissions</div>
+          <label><input type="checkbox" data-permission="allowExternalNetwork" /> External network</label>
+          <label><input type="checkbox" data-permission="allowInstallScripts" /> Install scripts</label>
+          <label><input type="checkbox" data-permission="allowChildProcesses" checked /> Child processes</label>
+          <label><input type="checkbox" data-permission="allowPersistentStorage" checked /> Local persistence</label>
+          <label><input type="checkbox" data-permission="allowPopups" /> Popups</label>
+          <div id="storage-summary" class="storage-summary">Storage: --</div>
+        </aside>
+      </section>
+    </main>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

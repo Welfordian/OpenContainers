@@ -1,0 +1,4 @@
+[
+  { "command": "npm install" },
+  { "command": "npm run dev", "detached": true }
+]

@@ -1,0 +1,12 @@
+{
+  "projectId": "fixture-websocket-basic",
+  "port": 3000,
+  "path": "/",
+  "status": 200,
+  "bodyContains": "websocket-basic",
+  "webSocket": {
+    "path": "/hmr",
+    "send": "ping",
+    "messages": ["ws-ready", "ws:ping"]
+  }
+}

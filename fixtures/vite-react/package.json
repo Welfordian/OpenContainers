@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "dev": "vite --host 0.0.0.0"
+  },
+  "dependencies": {
+    "vite": "5.0.0"
+  },
+  "devDependencies": {}
+}

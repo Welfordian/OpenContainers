@@ -1,0 +1,64 @@
+{
+  "is-number": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "files": {
+          "package.json": "{\"name\":\"is-number\",\"version\":\"1.0.0\",\"main\":\"index.js\"}",
+          "index.js": "module.exports = (value) => typeof value === 'number' && Number.isFinite(value);"
+        }
+      }
+    }
+  },
+  "is-odd": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "dependencies": {
+          "is-number": "^1.0.0"
+        },
+        "files": {
+          "package.json": "{\"name\":\"is-odd\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"dependencies\":{\"is-number\":\"^1.0.0\"}}",
+          "index.js": "const isNumber = require('is-number'); module.exports = (value) => isNumber(value) && Math.abs(value % 2) === 1;"
+        }
+      }
+    }
+  },
+  "vite": {
+    "versions": {
+      "5.0.0": {
+        "main": "index.js",
+        "bin": {
+          "vite": "bin/vite.js"
+        },
+        "dependencies": {
+          "esbuild": "0.19.0"
+        },
+        "files": {
+          "package.json": "{\"name\":\"vite\",\"version\":\"5.0.0\",\"main\":\"index.js\",\"bin\":{\"vite\":\"bin/vite.js\"},\"dependencies\":{\"esbuild\":\"0.19.0\"}}",
+          "index.js": "module.exports = { version: 'fixture-vite' };",
+          "bin/vite.js": "const http = require('http'); const fs = require('fs'); const esbuild = require('esbuild'); const server = http.createServer((req, res) => { res.setHeader('content-type', 'text/html'); res.end('<!doctype html><html><head></head><body><div id=\"root\">vite fixture</div><script>new WebSocket(\"ws://localhost:5173/hmr\")</script></body></html>'); }); server.on('upgrade', (req, socket) => { socket.addEventListener('open', () => socket.send('vite-hmr-ready')); socket.addEventListener('message', (event) => socket.send('vite:' + event.data)); }); fs.watch('.', () => {}); console.log('vite fixture dev server'); console.log(esbuild.version); server.listen(5173);"
+        }
+      }
+    }
+  },
+  "esbuild": {
+    "versions": {
+      "0.19.0": {
+        "main": "lib/main.js",
+        "bin": {
+          "esbuild": "bin/esbuild"
+        },
+        "scripts": {
+          "postinstall": "node install.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"esbuild\",\"version\":\"0.19.0\",\"main\":\"lib/main.js\",\"bin\":{\"esbuild\":\"bin/esbuild\"},\"scripts\":{\"postinstall\":\"node install.js\"}}",
+          "lib/main.js": "throw new Error('native esbuild should be adapted');",
+          "bin/esbuild": "throw new Error('native esbuild bin should be adapted');",
+          "install.js": "throw new Error('native esbuild install should be skipped');"
+        }
+      }
+    }
+  }
+}

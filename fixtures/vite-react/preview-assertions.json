@@ -1,0 +1,12 @@
+{
+  "projectId": "fixture-vite-react",
+  "port": 5173,
+  "path": "/",
+  "status": 200,
+  "bodyContains": "vite fixture",
+  "webSocket": {
+    "path": "/hmr",
+    "send": "hello",
+    "messages": ["vite-hmr-ready", "vite:hello"]
+  }
+}
