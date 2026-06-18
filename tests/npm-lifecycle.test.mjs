@@ -115,7 +115,7 @@ test("npm install resolves transitive compound semver ranges", async () => {
   assert.equal(result.status, 0, result.stderr.toString());
   assert.ok(kernel.fs.existsSync("/workspace/node_modules/safer-buffer/index.js"));
 
-  const lockfile = JSON.parse(kernel.fs.readFileSync("/workspace/package-lock.welford.json", "utf8"));
+  const lockfile = JSON.parse(kernel.fs.readFileSync("/workspace/package-lock.opencontainers.json", "utf8"));
   assert.ok(lockfile.packages.includes("safer-buffer@2.1.3"));
   assert.equal(lockfile.packages.includes("safer-buffer@3.0.0"), false);
 });

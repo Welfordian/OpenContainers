@@ -27,7 +27,7 @@ test("readline built-in supports questions, line events, prompts, and close", as
     `
       const readline = require('node:readline');
       const output = { write(value) { console.log('out:' + value); } };
-      const rl = readline.createInterface({ output, prompt: 'welford> ' });
+      const rl = readline.createInterface({ output, prompt: 'opencontainers> ' });
       rl.on('line', (line) => console.log('line:' + line));
       rl.on('close', () => console.log('closed'));
       rl.prompt();
@@ -39,7 +39,7 @@ test("readline built-in supports questions, line events, prompts, and close", as
 
   assert.equal(result.status, 0, result.stderr.toString());
   assert.equal(result.stdout.toString(), [
-    "out:welford> ",
+    "out:opencontainers> ",
     "out:name? ",
     "answer:Josh",
     "line:Josh",

@@ -103,8 +103,8 @@ test("KernelWorkerHost exposes virtual WebSocket connect/send/close messages", a
 test("preview parent bridge maps virtual localhost WebSockets to parent messages", async () => {
   const parentMessages = [];
   const win = new FakeWindow({
-    href: "https://run.welford.local/p/demo/",
-    origin: "https://run.welford.local",
+    href: "https://run.opencontainers.local/p/demo/",
+    origin: "https://run.opencontainers.local",
     parent: {
       postMessage: (message, origin) => parentMessages.push({ message, origin })
     }
@@ -118,34 +118,34 @@ test("preview parent bridge maps virtual localhost WebSockets to parent messages
     protocols: []
   });
 
-  assert.equal(parentMessages[0].message.type, "welford:ws:connect");
+  assert.equal(parentMessages[0].message.type, "opencontainers:ws:connect");
   assert.equal(parentMessages[0].message.port, 5173);
 
   const seen = [];
   socket.addEventListener("open", () => seen.push("open"));
   socket.addEventListener("message", (event) => seen.push(event.data));
   win.dispatchMessage({
-    type: "welford:ws:event",
+    type: "opencontainers:ws:event",
     localId: "preview-ws-1",
     socketId: "ws-1",
     event: "connected"
   });
   win.dispatchMessage({
-    type: "welford:ws:event",
+    type: "opencontainers:ws:event",
     localId: "preview-ws-1",
     socketId: "ws-1",
     event: "open"
   });
   socket.send("client");
   win.dispatchMessage({
-    type: "welford:ws:event",
+    type: "opencontainers:ws:event",
     socketId: "ws-1",
     event: "message",
     data: "server"
   });
 
   assert.deepEqual(seen, ["open", "server"]);
-  assert.equal(parentMessages.at(-1).message.type, "welford:ws:send");
+  assert.equal(parentMessages.at(-1).message.type, "opencontainers:ws:send");
   assert.equal(parentMessages.at(-1).message.socketId, "ws-1");
   assert.equal(parentMessages.at(-1).message.data, "client");
 });
@@ -161,22 +161,22 @@ test("preview parent bridge proxies fetches through the parent frame", async () 
   });
 
   const bridge = createParentBridge(win, {
-    parentOrigin: "https://run.welford.local",
-    previewOrigin: "https://run.welford.local",
-    baseUrl: "https://run.welford.local/p/demo/",
+    parentOrigin: "https://run.opencontainers.local",
+    previewOrigin: "https://run.opencontainers.local",
+    baseUrl: "https://run.opencontainers.local/p/demo/",
     projectId: "demo",
     defaultPort: 3000
   });
   const responsePromise = bridge.fetch({
-    url: "https://run.welford.local/p/demo/api",
+    url: "https://run.opencontainers.local/p/demo/api",
     method: "GET",
     headers: []
   });
 
-  assert.equal(parentMessages[0].origin, "https://run.welford.local");
-  assert.equal(parentMessages[0].message.type, "welford:fetch:request");
+  assert.equal(parentMessages[0].origin, "https://run.opencontainers.local");
+  assert.equal(parentMessages[0].message.type, "opencontainers:fetch:request");
   win.dispatchMessage({
-    type: "welford:fetch:response",
+    type: "opencontainers:fetch:response",
     id: parentMessages[0].message.id,
     ok: true,
     status: 200,
@@ -199,10 +199,10 @@ test("preview client proxies virtual XMLHttpRequest through the parent frame", a
       postMessage: (message, origin) => parentMessages.push({ message, origin })
     }
   });
-  win.__WELFORD_PREVIEW__ = {
-    parentOrigin: "https://run.welford.local",
-    previewOrigin: "https://run.welford.local",
-    baseUrl: "https://run.welford.local/p/demo/",
+  win.__OPENCONTAINERS_PREVIEW__ = {
+    parentOrigin: "https://run.opencontainers.local",
+    previewOrigin: "https://run.opencontainers.local",
+    baseUrl: "https://run.opencontainers.local/p/demo/",
     projectId: "demo",
     defaultPort: 3000
   };
@@ -223,15 +223,15 @@ test("preview client proxies virtual XMLHttpRequest through the parent frame", a
   xhr.setRequestHeader("content-type", "text/plain;charset=UTF-8");
   xhr.send("40");
 
-  assert.equal(parentMessages[0].origin, "https://run.welford.local");
-  assert.equal(parentMessages[0].message.type, "welford:fetch:request");
+  assert.equal(parentMessages[0].origin, "https://run.opencontainers.local");
+  assert.equal(parentMessages[0].message.type, "opencontainers:fetch:request");
   assert.equal(parentMessages[0].message.method, "POST");
   assert.equal(parentMessages[0].message.body, "40");
   assert.match(parentMessages[0].message.url, /\/p\/demo:3000\/socket\.io\/\?EIO=4&transport=polling&sid=abc$/);
 
   const body = new TextEncoder().encode("ok").buffer;
   win.dispatchMessage({
-    type: "welford:fetch:response",
+    type: "opencontainers:fetch:response",
     id: parentMessages[0].message.id,
     ok: true,
     status: 200,
@@ -249,25 +249,25 @@ test("preview request URL mapper routes localhost and root-relative fetches to p
   const config = {
     projectId: "demo",
     defaultPort: 3000,
-    previewOrigin: "https://run.welford.local",
-    baseUrl: "https://run.welford.local/p/demo/"
+    previewOrigin: "https://run.opencontainers.local",
+    baseUrl: "https://run.opencontainers.local/p/demo/"
   };
 
   assert.equal(
     mapPreviewRequestUrl("http://localhost:5173/src/main.js?x=1", config, "about:srcdoc"),
-    "https://run.welford.local/p/demo:5173/src/main.js?x=1"
+    "https://run.opencontainers.local/p/demo:5173/src/main.js?x=1"
   );
   assert.equal(
     mapPreviewRequestUrl("/api/health", config, "about:srcdoc"),
-    "https://run.welford.local/p/demo:3000/api/health"
+    "https://run.opencontainers.local/p/demo:3000/api/health"
   );
   assert.equal(
-    mapPreviewRequestUrl("https://run.welford.local/api/private", config, "about:srcdoc"),
-    "https://run.welford.local/p/demo:3000/api/private"
+    mapPreviewRequestUrl("https://run.opencontainers.local/api/private", config, "about:srcdoc"),
+    "https://run.opencontainers.local/p/demo:3000/api/private"
   );
   assert.equal(
     mapPreviewRequestUrl("client.js", config, "about:srcdoc"),
-    "https://run.welford.local/p/demo/client.js"
+    "https://run.opencontainers.local/p/demo/client.js"
   );
 });
 
@@ -275,8 +275,8 @@ test("preview WebSocket mapper routes same-host sockets to the virtual port", ()
   const config = {
     projectId: "demo",
     defaultPort: 3000,
-    previewOrigin: "https://run.welford.local",
-    baseUrl: "https://run.welford.local/p/demo/"
+    previewOrigin: "https://run.opencontainers.local",
+    baseUrl: "https://run.opencontainers.local/p/demo/"
   };
 
   assert.deepEqual(
@@ -289,7 +289,7 @@ test("preview WebSocket mapper routes same-host sockets to the virtual port", ()
     }
   );
   assert.deepEqual(
-    mapPreviewWebSocketRequest("wss://run.welford.local/socket.io/?EIO=4", undefined, config, "about:srcdoc"),
+    mapPreviewWebSocketRequest("wss://run.opencontainers.local/socket.io/?EIO=4", undefined, config, "about:srcdoc"),
     {
       projectId: "demo",
       port: 3000,

@@ -9,7 +9,7 @@ export class NpmCommand {
   async run(args, descriptor) {
     const [command = "--version", ...rest] = args;
     if (command === "--version" || command === "-v") {
-      descriptor.stdout.write("welford-npm/0.1.0\n");
+      descriptor.stdout.write("opencontainers-npm/0.1.0\n");
       return 0;
     }
     if (command === "install" || command === "i") {

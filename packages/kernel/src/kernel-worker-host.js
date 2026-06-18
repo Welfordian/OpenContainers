@@ -133,7 +133,7 @@ export class KernelWorkerHost {
       const process = this.kernel.spawn("sh", ["-c", commandLine], {
         cwd,
         env: {
-          WELFORD_PROJECT_ID: this.projectId,
+          OPENCONTAINERS_PROJECT_ID: this.projectId,
           ...env
         },
         projectId: this.projectId
@@ -157,7 +157,7 @@ export class KernelWorkerHost {
     const status = await this.kernel.shell.run(commandLine, {
       cwd,
       env: {
-        WELFORD_PROJECT_ID: this.projectId,
+        OPENCONTAINERS_PROJECT_ID: this.projectId,
         ...env
       },
       stdout,
@@ -257,7 +257,7 @@ export class KernelWorkerHost {
     const session = this.kernel.pty.createSession({
       cwd: payload.cwd ?? "/workspace",
       env: {
-        WELFORD_PROJECT_ID: this.projectId,
+        OPENCONTAINERS_PROJECT_ID: this.projectId,
         ...(payload.env ?? {})
       },
       projectId: this.projectId,
@@ -303,12 +303,12 @@ export class KernelWorkerHost {
     if (this.kernel.fs.existsSync("/workspace/node_modules")) {
       this.kernel.fs.rmSync("/workspace/node_modules", { recursive: true, force: true });
     }
-    if (this.kernel.fs.existsSync("/workspace/package-lock.welford.json")) {
-      this.kernel.fs.rmSync("/workspace/package-lock.welford.json", { force: true });
+    if (this.kernel.fs.existsSync("/workspace/package-lock.opencontainers.json")) {
+      this.kernel.fs.rmSync("/workspace/package-lock.opencontainers.json", { force: true });
     }
     if (this.persistenceDriver && this.permissions().allowPersistentStorage) {
       await this.persistenceDriver.removeTree("/workspace/node_modules");
-      await this.persistenceDriver.removeTree("/workspace/package-lock.welford.json");
+      await this.persistenceDriver.removeTree("/workspace/package-lock.opencontainers.json");
     }
   }
 
@@ -419,7 +419,7 @@ export function defaultProjectFiles() {
       "",
       "http.createServer((req, res) => {",
       "  res.setHeader('content-type', 'text/html');",
-      "  res.end('<!doctype html><html><body><h1>Hello from Welford Containers</h1></body></html>');",
+      "  res.end('<!doctype html><html><body><h1>Hello from OpenContainers</h1></body></html>');",
       "}).listen(3000);"
     ].join("\n")
   };

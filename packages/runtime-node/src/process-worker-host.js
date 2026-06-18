@@ -37,7 +37,7 @@ export class ProcessWorkerHost extends EventEmitter {
   boot(descriptor) {
     if (!this.kernel) {
       throw Object.assign(new Error("ProcessWorkerHost requires a kernel binding before boot"), {
-        code: "ERR_WELFORD_PROCESS_WORKER_KERNEL_MISSING"
+        code: "ERR_OPENCONTAINERS_PROCESS_WORKER_KERNEL_MISSING"
       });
     }
     this.descriptor = {

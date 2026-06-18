@@ -103,7 +103,7 @@ test("milestone 4 foundation: virtual http server dispatches through the kernel 
     const http = require('http');
     http.createServer((req, res) => {
       res.setHeader('content-type', 'text/plain');
-      res.end('Hello from Welford Containers');
+      res.end('Hello from OpenContainers');
     }).listen(3000);
   `);
 
@@ -119,7 +119,7 @@ test("milestone 4 foundation: virtual http server dispatches through the kernel 
   });
 
   assert.equal(response.status, 200);
-  assert.equal(Buffer.from(response.body).toString(), "Hello from Welford Containers");
+  assert.equal(Buffer.from(response.body).toString(), "Hello from OpenContainers");
   server.kill("SIGTERM");
 });
 

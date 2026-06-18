@@ -18,7 +18,7 @@ test("ProcessWorkerHost boots, runs NodeRuntime code, streams output, and report
       pid: 501,
       cwd: "/workspace",
       argv: ["node", "-e", "console.log('worker')"],
-      env: { WELFORD_PROJECT_ID: "demo" }
+      env: { OPENCONTAINERS_PROJECT_ID: "demo" }
     }
   });
   await host.handleMessage({
@@ -53,5 +53,5 @@ test("ProcessWorkerHost reports a clear boot error without a kernel binding", as
 
   const reply = messages.find((message) => message.type === "reply" && message.requestId === "boot");
   assert.equal(reply.payload.ok, false);
-  assert.equal(reply.payload.error.code, "ERR_WELFORD_PROCESS_WORKER_KERNEL_MISSING");
+  assert.equal(reply.payload.error.code, "ERR_OPENCONTAINERS_PROCESS_WORKER_KERNEL_MISSING");
 });

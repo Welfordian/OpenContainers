@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WelfordContainer, createWelfordServiceWorkerScript, flattenWebContainerTree } from "../packages/embed/src/webcontainer-compatible.js";
+import { OpenContainer, createOpenContainersServiceWorkerScript, flattenWebContainerTree } from "../packages/embed/src/webcontainer-compatible.js";
 
-test("WelfordContainer facade flattens WebContainer mount trees", () => {
+test("OpenContainer facade flattens WebContainer mount trees", () => {
   assert.deepEqual(flattenWebContainerTree({
     src: {
       directory: {
@@ -16,8 +16,8 @@ test("WelfordContainer facade flattens WebContainer mount trees", () => {
   });
 });
 
-test("WelfordContainer facade runs node processes with WebContainer-like output", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade runs node processes with WebContainer-like output", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   await container.mount({
     "index.js": { file: { contents: "console.log('facade')" } }
   });
@@ -30,8 +30,8 @@ test("WelfordContainer facade runs node processes with WebContainer-like output"
   assert.equal(output.trim(), "facade");
 });
 
-test("WelfordContainer facade runs REPL-shaped top-level-await modules", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade runs REPL-shaped top-level-await modules", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   await container.mount({
     "index.js": { file: { contents: "await Promise.resolve();\nconsole.log('repl-entry');" } },
     ".repl": {
@@ -51,8 +51,8 @@ test("WelfordContainer facade runs REPL-shaped top-level-await modules", async (
   assert.equal(output.trim(), "repl-entry\nrepl-done");
 });
 
-test("WelfordContainer facade honors process.exitCode in async entry modules", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade honors process.exitCode in async entry modules", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   await container.mount({
     "index.mjs": { file: { contents: "process.exitCode = 7;" } }
   });
@@ -61,16 +61,16 @@ test("WelfordContainer facade honors process.exitCode in async entry modules", a
   assert.equal(await process.exit, 7);
 });
 
-test("WelfordContainer facade reports a Node-compatible version", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade reports a Node-compatible version", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   const process = await container.spawn("node", ["-v"]);
 
-  assert.equal((await readStream(process.output)).trim(), "v26.0.0-welford");
+  assert.equal((await readStream(process.output)).trim(), "v26.0.0-opencontainers");
   assert.equal(await process.exit, 0);
 });
 
-test("WelfordContainer facade exposes process.versions.v8", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade exposes process.versions.v8", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   await container.mount({
     "index.js": { file: { contents: "console.log(process.versions.v8);" } }
   });
@@ -80,8 +80,8 @@ test("WelfordContainer facade exposes process.versions.v8", async () => {
   assert.equal(await process.exit, 0);
 });
 
-test("WelfordContainer facade emits server-ready for detected ports and dispatches preview requests", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade emits server-ready for detected ports and dispatches preview requests", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   await container.mount({
     "server.js": {
       file: {
@@ -98,7 +98,7 @@ test("WelfordContainer facade emits server-ready for detected ports and dispatch
   const event = await ready;
 
   assert.equal(event.port, 8000);
-  assert.match(event.url, /\/welford\/preview\/demo:8000\//);
+  assert.match(event.url, /\/opencontainers\/preview\/demo:8000\//);
 
   const response = await container.dispatchPreviewRequest({
     url: `${event.url}hello?x=1`,
@@ -111,8 +111,8 @@ test("WelfordContainer facade emits server-ready for detected ports and dispatch
   process.kill();
 });
 
-test("WelfordContainer facade dispatches nested preview URLs to the innermost port", async () => {
-  const container = await WelfordContainer.boot({ projectId: "repl", registerServiceWorker: false });
+test("OpenContainer facade dispatches nested preview URLs to the innermost port", async () => {
+  const container = await OpenContainer.boot({ projectId: "repl", registerServiceWorker: false });
   await container.mount({
     "server.js": {
       file: {
@@ -129,7 +129,7 @@ test("WelfordContainer facade dispatches nested preview URLs to the innermost po
   await ready;
 
   const response = await container.dispatchPreviewRequest({
-    url: "https://run.welford.local/welford/preview/repl:8000/welford/preview/repl:3000/socket.io/?EIO=4&transport=polling",
+    url: "https://run.opencontainers.local/opencontainers/preview/repl:8000/opencontainers/preview/repl:3000/socket.io/?EIO=4&transport=polling",
     method: "GET",
     headers: []
   });
@@ -140,8 +140,8 @@ test("WelfordContainer facade dispatches nested preview URLs to the innermost po
   process.kill();
 });
 
-test("WelfordContainer facade kill releases preview ports for reruns", async () => {
-  const container = await WelfordContainer.boot({ projectId: "repl", registerServiceWorker: false });
+test("OpenContainer facade kill releases preview ports for reruns", async () => {
+  const container = await OpenContainer.boot({ projectId: "repl", registerServiceWorker: false });
   await container.mount({
     "index.js": {
       file: {
@@ -183,8 +183,8 @@ test("WelfordContainer facade kill releases preview ports for reruns", async () 
   assert.deepEqual(container.kernel.listeningPorts("repl"), []);
 });
 
-test("WelfordContainer facade contains process startup errors in process output", async () => {
-  const container = await WelfordContainer.boot({ projectId: "repl", registerServiceWorker: false });
+test("OpenContainer facade contains process startup errors in process output", async () => {
+  const container = await OpenContainer.boot({ projectId: "repl", registerServiceWorker: false });
   await container.mount({
     "index.js": {
       file: {
@@ -213,7 +213,7 @@ test("WelfordContainer facade contains process startup errors in process output"
   assert.deepEqual(container.kernel.listeningPorts("repl"), []);
 });
 
-test("WelfordContainer facade waits for Service Worker control before connecting previews", async () => {
+test("OpenContainer facade waits for Service Worker control before connecting previews", async () => {
   const previousNavigator = globalThis.navigator;
   const previousWindow = globalThis.window;
   let controller = null;
@@ -253,11 +253,11 @@ test("WelfordContainer facade waits for Service Worker control before connecting
   });
 
   try {
-    const container = await WelfordContainer.boot({
+    const container = await OpenContainer.boot({
       serviceWorkerControllerTimeoutMs: 100
     });
 
-    assert.equal(postedMessage?.message?.type, "WELFORD_CONNECT_KERNEL");
+    assert.equal(postedMessage?.message?.type, "OPENCONTAINERS_CONNECT_KERNEL");
     assert.equal(postedMessage?.ports?.length, 1);
     container.teardown();
   } finally {
@@ -272,7 +272,7 @@ test("WelfordContainer facade waits for Service Worker control before connecting
   }
 });
 
-test("WelfordContainer facade does not connect previews until the Service Worker controls the page", async () => {
+test("OpenContainer facade does not connect previews until the Service Worker controls the page", async () => {
   const previousNavigator = globalThis.navigator;
   const previousWindow = globalThis.window;
   let postedMessage = null;
@@ -302,7 +302,7 @@ test("WelfordContainer facade does not connect previews until the Service Worker
   });
 
   try {
-    const container = await WelfordContainer.boot({
+    const container = await OpenContainer.boot({
       serviceWorkerControllerTimeoutMs: 100
     });
     container.on("error", error => errors.push(error));
@@ -340,8 +340,8 @@ test("WelfordContainer facade does not connect previews until the Service Worker
   }
 });
 
-test("WelfordContainer facade allows terminal-only scripts without preview ports", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade allows terminal-only scripts without preview ports", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   const ports = [];
   container.on("server-ready", (port) => ports.push(port));
   await container.mount({
@@ -357,8 +357,8 @@ test("WelfordContainer facade allows terminal-only scripts without preview ports
   assert.deepEqual(ports, []);
 });
 
-test("WelfordContainer facade keeps interval-only scripts alive until cleared", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade keeps interval-only scripts alive until cleared", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   await container.mount({
     "index.js": {
       file: {
@@ -386,8 +386,8 @@ test("WelfordContainer facade keeps interval-only scripts alive until cleared", 
   assert.equal(output.trim(), "1\n2\n3\nDone!");
 });
 
-test("WelfordContainer facade supports node:worker_threads eval workers", async () => {
-  const container = await WelfordContainer.boot({ registerServiceWorker: false });
+test("OpenContainer facade supports node:worker_threads eval workers", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
   await container.mount({
     "index.js": {
       file: {
@@ -416,10 +416,10 @@ test("WelfordContainer facade supports node:worker_threads eval workers", async 
   assert.equal(output.trim(), "Worker OK");
 });
 
-test("Welford service worker script contains preview routing contract", () => {
-  const script = createWelfordServiceWorkerScript();
-  assert.match(script, /WELFORD_CONNECT_KERNEL/);
-  assert.match(script, /\/welford\/preview/);
+test("OpenContainers service worker script contains preview routing contract", () => {
+  const script = createOpenContainersServiceWorkerScript();
+  assert.match(script, /OPENCONTAINERS_CONNECT_KERNEL/);
+  assert.match(script, /\/opencontainers\/preview/);
   assert.match(script, /dispatchHttp/);
 });
 

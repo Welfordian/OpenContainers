@@ -35,7 +35,7 @@ export class SyscallMailbox {
     const waitResult = Atomics.wait(this.control, STATE, MailboxState.request, timeoutMs);
     if (waitResult === "timed-out") {
       throw Object.assign(new Error("Timed out waiting for syscall response"), {
-        code: "ERR_WELFORD_SYSCALL_TIMEOUT"
+        code: "ERR_OPENCONTAINERS_SYSCALL_TIMEOUT"
       });
     }
 
@@ -79,7 +79,7 @@ export class SyscallMailbox {
     const bytes = encoder.encode(JSON.stringify(value));
     if (bytes.byteLength > this.payload.byteLength) {
       throw Object.assign(new Error(`Syscall payload is too large: ${bytes.byteLength} bytes`), {
-        code: "ERR_WELFORD_SYSCALL_PAYLOAD_TOO_LARGE"
+        code: "ERR_OPENCONTAINERS_SYSCALL_PAYLOAD_TOO_LARGE"
       });
     }
     this.payload.fill(0);

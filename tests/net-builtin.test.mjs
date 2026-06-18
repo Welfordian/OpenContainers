@@ -49,7 +49,7 @@ test("node:net reports clear V1 error for external raw TCP", async () => {
   ], { cwd: "/workspace" });
 
   assert.equal(result.status, 0, result.stderr.toString());
-  assert.equal(result.stdout.toString(), "ERR_WELFORD_RAW_TCP_UNSUPPORTED\n");
+  assert.equal(result.stdout.toString(), "ERR_OPENCONTAINERS_RAW_TCP_UNSUPPORTED\n");
 });
 
 test("net server close lets a listener-only process exit", async () => {

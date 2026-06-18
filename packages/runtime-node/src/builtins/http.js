@@ -111,7 +111,7 @@ export class ClientRequest extends Writable {
     this.#process = process;
     this.#callback = callback;
     this.#chunks = chunks;
-    process.__welfordAddRef?.();
+    process.__opencontainersAddRef?.();
   }
 
   #kernel;
@@ -161,14 +161,14 @@ export class ClientRequest extends Writable {
         reportVirtualError(this.#process, emitError);
       }
     } finally {
-      queueMicrotask(() => this.#process.__welfordUnref?.());
+      queueMicrotask(() => this.#process.__opencontainersUnref?.());
     }
   }
 
   async #dispatchVirtual(body) {
     return this.#kernel.dispatchHttpRequest({
       id: globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2),
-      projectId: this.#process.env.WELFORD_PROJECT_ID ?? "default",
+      projectId: this.#process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
       port: this.port,
       method: this.method,
       url: this.path,
@@ -182,12 +182,12 @@ export class ClientRequest extends Writable {
     const requestUrl = new URL(url);
     if (isHostPageOrigin(requestUrl)) {
       throw Object.assign(new Error(`Host application request blocked: ${requestUrl.href}`), {
-        code: "ERR_WELFORD_HOST_ORIGIN_BLOCKED"
+        code: "ERR_OPENCONTAINERS_HOST_ORIGIN_BLOCKED"
       });
     }
     if (this.#kernel.allowExternalNetwork !== true) {
       throw Object.assign(new Error(`External network request blocked: ${requestUrl.href}`), {
-        code: "ERR_WELFORD_EXTERNAL_NETWORK_BLOCKED"
+        code: "ERR_OPENCONTAINERS_EXTERNAL_NETWORK_BLOCKED"
       });
     }
     const response = await fetch(requestUrl.href, {
@@ -297,7 +297,7 @@ export function createHttpBuiltin({ kernel, process }) {
         const callback = typeof hostOrCallback === "function" ? hostOrCallback : maybeCallback;
         const host = typeof hostOrCallback === "string" ? hostOrCallback : "0.0.0.0";
         const assignedPort = kernel.registerPort({
-          projectId: process.env.WELFORD_PROJECT_ID ?? "default",
+          projectId: process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
           pid: process.pid,
           port,
           host,
@@ -313,7 +313,7 @@ export function createHttpBuiltin({ kernel, process }) {
           })
         });
         kernel.registerWebSocketServer({
-          projectId: process.env.WELFORD_PROJECT_ID ?? "default",
+          projectId: process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
           port: assignedPort,
           handler: (socket, request) => {
             const req = new IncomingMessage({
@@ -441,7 +441,7 @@ function virtualServerErrorResponse(error) {
     statusText: "Internal Server Error",
     headers: [
       ["content-type", "text/plain; charset=utf-8"],
-      ["x-welford-error", "unhandled-virtual-server-error"]
+      ["x-opencontainers-error", "unhandled-virtual-server-error"]
     ],
     body: new TextEncoder().encode(`Unhandled virtual server error: ${message}\n`)
   };

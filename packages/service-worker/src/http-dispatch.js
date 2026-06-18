@@ -1,5 +1,5 @@
 export function parsePreviewUrl(url) {
-  const parsed = typeof url === "string" ? new URL(url, "https://run.welford.local") : url;
+  const parsed = typeof url === "string" ? new URL(url, "https://run.opencontainers.local") : url;
   const match = parsed.pathname.match(/^\/p\/([^/]+)(\/.*)?$/);
   if (!match) return null;
   const [projectPart, explicitPort] = match[1].split(":");
@@ -12,7 +12,7 @@ export function parsePreviewUrl(url) {
 }
 
 export async function dispatchPreviewRequest({ kernel, request, defaultPort }) {
-  const url = new URL(request.url, "https://run.welford.local");
+  const url = new URL(request.url, "https://run.opencontainers.local");
   const preview = parsePreviewUrl(url);
   if (!preview) return null;
 

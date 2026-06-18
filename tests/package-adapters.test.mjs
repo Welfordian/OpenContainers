@@ -84,11 +84,11 @@ test("npm install applies package adapters to native-binary packages", async () 
     "const esbuild = require('esbuild'); console.log(esbuild.version); console.log(esbuild.transformSync('let x = 1').code);"
   ], { cwd: "/workspace" });
   assert.equal(requireResult.status, 0, requireResult.stderr.toString());
-  assert.equal(requireResult.stdout.toString(), "welford-esbuild-wasm-adapter\nlet x = 1\n");
+  assert.equal(requireResult.stdout.toString(), "opencontainers-esbuild-wasm-adapter\nlet x = 1\n");
 
   const binResult = await kernel.run("esbuild", ["--version"], { cwd: "/workspace" });
   assert.equal(binResult.status, 0, binResult.stderr.toString());
-  assert.equal(binResult.stdout.toString(), "welford-esbuild-wasm-adapter\n");
+  assert.equal(binResult.stdout.toString(), "opencontainers-esbuild-wasm-adapter\n");
 });
 
 test("fsevents and sharp adapters replace native module behavior explicitly", async () => {
@@ -110,5 +110,5 @@ test("fsevents and sharp adapters replace native module behavior explicitly", as
   ], { cwd: "/workspace" });
 
   assert.equal(result.status, 0, result.stderr.toString());
-  assert.equal(result.stdout.toString(), "function\nERR_WELFORD_NATIVE_MODULE_UNSUPPORTED\n");
+  assert.equal(result.stdout.toString(), "function\nERR_OPENCONTAINERS_NATIVE_MODULE_UNSUPPORTED\n");
 });

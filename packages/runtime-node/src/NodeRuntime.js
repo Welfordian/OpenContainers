@@ -37,7 +37,7 @@ export class NodeRuntime {
       await this.loader.import(filename, `${dirname(filename)}/[entry].js`);
       return this.loader.process.exitCode ?? 0;
     } catch (error) {
-      if (error?.code === "WELFORD_PROCESS_EXIT") return error.exitCode;
+      if (error?.code === "OPENCONTAINERS_PROCESS_EXIT") return error.exitCode;
       this.descriptor.stderr.write(`${error.stack ?? error.message ?? error}\n`);
       return 1;
     }
@@ -59,7 +59,7 @@ export class NodeRuntime {
       this.loader.require(filename, `${dirname(filename)}/[entry].js`);
       return 0;
     } catch (error) {
-      if (error?.code === "WELFORD_PROCESS_EXIT") return error.exitCode;
+      if (error?.code === "OPENCONTAINERS_PROCESS_EXIT") return error.exitCode;
       this.descriptor.stderr.write(`${error.stack ?? error.message ?? error}\n`);
       return 1;
     }
@@ -82,10 +82,10 @@ export class NodeRuntime {
       "clearInterval",
       "setImmediate",
       "clearImmediate",
-      "__welfordGlobals",
+      "__opencontainersGlobals",
       "fetch",
-      "__welfordDynamicImport",
-      `with (__welfordGlobals) {\n${source}\n}\n//# sourceURL=welford://${filename}`
+      "__opencontainersDynamicImport",
+      `with (__opencontainersGlobals) {\n${source}\n}\n//# sourceURL=opencontainers://${filename}`
     );
     wrapped(
       module.exports,

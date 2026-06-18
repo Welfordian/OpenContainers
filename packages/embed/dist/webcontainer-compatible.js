@@ -77,7 +77,7 @@ function isInsidePath(parent, child) {
 }
 
 // packages/runtime-node/src/builtins/events.js
-var EVENTS_SYMBOL = /* @__PURE__ */ Symbol.for("welford.events");
+var EVENTS_SYMBOL = /* @__PURE__ */ Symbol.for("opencontainers.events");
 var EventEmitter = class {
   constructor() {
     eventMap(this);
@@ -552,7 +552,7 @@ var packageAdapters = {
           return buildSync();
         }
         module.exports = {
-          version: 'welford-esbuild-wasm-adapter',
+          version: 'opencontainers-esbuild-wasm-adapter',
           transform,
           transformSync,
           build,
@@ -567,7 +567,7 @@ var packageAdapters = {
         if (args.includes('--version')) {
           console.log(esbuild.version);
         } else {
-          console.log('welford esbuild adapter');
+          console.log('opencontainers esbuild adapter');
         }
       `
     }
@@ -591,8 +591,8 @@ var packageAdapters = {
     files: {
       "/__adapters__/sharp/unsupported.js": `
         function sharpUnsupported() {
-          const error = new Error('sharp uses native image processing bindings and is not supported in Welford Containers V1');
-          error.code = 'ERR_WELFORD_NATIVE_MODULE_UNSUPPORTED';
+          const error = new Error('sharp uses native image processing bindings and is not supported in OpenContainers V1');
+          error.code = 'ERR_OPENCONTAINERS_NATIVE_MODULE_UNSUPPORTED';
           throw error;
         }
         module.exports = sharpUnsupported;
@@ -638,7 +638,7 @@ var RegistryClient = class {
       const tarBytes = await packageTarBytes(compressed, metadata, { packageName, version, tarball });
       return extractTarFiles(tarBytes);
     } catch (error) {
-      if ((error == null ? void 0 : error.code) !== "ERR_WELFORD_NPM_INTEGRITY") throw error;
+      if ((error == null ? void 0 : error.code) !== "ERR_OPENCONTAINERS_NPM_INTEGRITY") throw error;
       const retryBytes = await fetchPackageBytes(tarball, packageName, version, { cache: "reload" });
       const tarBytes = await packageTarBytes(retryBytes, metadata, { packageName, version, tarball, allowIntegrityMismatchArchive: true });
       return extractTarFiles(tarBytes);
@@ -658,10 +658,10 @@ async function packageTarBytes(bytes, metadata, details) {
     try {
       await verifyIntegrity(bytes, metadata.dist.integrity);
     } catch (error) {
-      if ((error == null ? void 0 : error.code) === "ERR_WELFORD_NPM_INTEGRITY" && packageArchiveMatches(bytes, details)) {
+      if ((error == null ? void 0 : error.code) === "ERR_OPENCONTAINERS_NPM_INTEGRITY" && packageArchiveMatches(bytes, details)) {
         return bytes;
       }
-      if ((error == null ? void 0 : error.code) === "ERR_WELFORD_NPM_INTEGRITY" && details.allowIntegrityMismatchArchive) {
+      if ((error == null ? void 0 : error.code) === "ERR_OPENCONTAINERS_NPM_INTEGRITY" && details.allowIntegrityMismatchArchive) {
         const tarBytes = await maybeDecompressGzip(bytes);
         if (packageArchiveMatches(tarBytes, details)) return tarBytes;
       }
@@ -684,7 +684,7 @@ async function verifyIntegrity(bytes, integrity) {
     if (normalizeIntegrityDigest(actual) === normalizeIntegrityDigest(expected)) return;
   }
   throw Object.assign(new Error("npm tarball integrity check failed"), {
-    code: "ERR_WELFORD_NPM_INTEGRITY",
+    code: "ERR_OPENCONTAINERS_NPM_INTEGRITY",
     expected: checks.map((check) => `${check.algorithm}-${check.expected}`).join(" "),
     actual: attempts.map((attempt) => `${attempt.algorithm}-${attempt.actual}`).join(" ")
   });
@@ -699,7 +699,7 @@ function enrichIntegrityError(error, bytes, details) {
     error.expected ? `expected: ${error.expected}` : "",
     error.actual ? `actual: ${error.actual}` : ""
   ].filter(Boolean).join("\n")), {
-    code: "ERR_WELFORD_NPM_INTEGRITY",
+    code: "ERR_OPENCONTAINERS_NPM_INTEGRITY",
     packageName: details.packageName,
     version: details.version,
     tarball: details.tarball,
@@ -738,7 +738,7 @@ async function decompressGzip(bytes) {
     return new Uint8Array(gunzipSync(bytes));
   }
   throw Object.assign(new Error("gzip decompression is unavailable in this browser"), {
-    code: "ERR_WELFORD_GZIP_UNAVAILABLE"
+    code: "ERR_OPENCONTAINERS_GZIP_UNAVAILABLE"
   });
 }
 async function maybeDecompressGzip(bytes) {
@@ -1043,7 +1043,7 @@ var NpmInstaller = class {
         name,
         version,
         main: "index.js",
-        welfordAdapter: adapter.replaceModule,
+        opencontainersAdapter: adapter.replaceModule,
         originalPackage: {
           main: packageMetadata.main,
           exports: packageMetadata.exports
@@ -1071,7 +1071,7 @@ var NpmInstaller = class {
     }
   }
   writeLockfile(cwd) {
-    this.kernel.fs.writeFileSync(resolvePath(cwd, "package-lock.welford.json"), `${JSON.stringify({
+    this.kernel.fs.writeFileSync(resolvePath(cwd, "package-lock.opencontainers.json"), `${JSON.stringify({
       lockfileVersion: 1,
       packages: [...this.installed].sort()
     }, null, 2)}
@@ -1118,7 +1118,7 @@ var NpmInstaller = class {
       const result = await child.completed;
       if (result.status !== 0) {
         throw Object.assign(new Error(`${name}@${version} ${scriptName} failed`), {
-          code: "ERR_WELFORD_NPM_LIFECYCLE_FAILED",
+          code: "ERR_OPENCONTAINERS_NPM_LIFECYCLE_FAILED",
           status: result.status
         });
       }
@@ -1145,7 +1145,7 @@ var NpmCommand = class {
     var _a2, _b;
     const [command = "--version", ...rest] = args;
     if (command === "--version" || command === "-v") {
-      descriptor.stdout.write("welford-npm/0.1.0\n");
+      descriptor.stdout.write("opencontainers-npm/0.1.0\n");
       return 0;
     }
     if (command === "install" || command === "i") {
@@ -1843,8 +1843,8 @@ var NetManager = class {
   }
   connect({ projectId = "default", port, host = "127.0.0.1" }) {
     if (!isLoopbackHost(host)) {
-      throw Object.assign(new Error(`Raw TCP to ${host}:${port} is not supported in Welford Containers V1`), {
-        code: "ERR_WELFORD_RAW_TCP_UNSUPPORTED"
+      throw Object.assign(new Error(`Raw TCP to ${host}:${port} is not supported in OpenContainers V1`), {
+        code: "ERR_OPENCONTAINERS_RAW_TCP_UNSUPPORTED"
       });
     }
     const listener = this.listeners.get(__privateMethod(this, _NetManager_instances, key_fn).call(this, projectId, Number(port)));
@@ -1897,25 +1897,25 @@ function isLoopbackHost(host = "127.0.0.1") {
 // packages/runtime-node/src/builtins/buffer.js
 var encoder = new TextEncoder();
 var decoder = new TextDecoder();
-var _WelfordBuffer_instances, fillString_fn;
-var _WelfordBuffer = class _WelfordBuffer extends Uint8Array {
+var _OpenContainersBuffer_instances, fillString_fn;
+var _OpenContainersBuffer = class _OpenContainersBuffer extends Uint8Array {
   constructor() {
     super(...arguments);
-    __privateAdd(this, _WelfordBuffer_instances);
+    __privateAdd(this, _OpenContainersBuffer_instances);
   }
   static from(value, encoding = "utf8", length) {
     if (value instanceof ArrayBuffer) {
       const offset = typeof encoding === "number" ? encoding : 0;
-      return new _WelfordBuffer(value.slice(offset, length === void 0 ? value.byteLength : offset + length));
+      return new _OpenContainersBuffer(value.slice(offset, length === void 0 ? value.byteLength : offset + length));
     }
     if (ArrayBuffer.isView(value)) {
-      return new _WelfordBuffer(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      return new _OpenContainersBuffer(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
     }
-    if (Array.isArray(value)) return new _WelfordBuffer(value);
+    if (Array.isArray(value)) return new _OpenContainersBuffer(value);
     if (typeof value === "string") {
       const normalizedEncoding = normalizeEncoding(encoding);
       if (normalizedEncoding === "hex") {
-        const bytes = new _WelfordBuffer(Math.ceil(value.length / 2));
+        const bytes = new _OpenContainersBuffer(Math.ceil(value.length / 2));
         for (let index = 0; index < bytes.length; index++) {
           bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
         }
@@ -1923,33 +1923,33 @@ var _WelfordBuffer = class _WelfordBuffer extends Uint8Array {
       }
       if (normalizedEncoding === "base64") return base64ToBytes(value);
       if (normalizedEncoding === "latin1") {
-        const bytes = new _WelfordBuffer(value.length);
+        const bytes = new _OpenContainersBuffer(value.length);
         for (let index = 0; index < value.length; index++) bytes[index] = value.charCodeAt(index) & 255;
         return bytes;
       }
-      return new _WelfordBuffer(encoder.encode(value));
+      return new _OpenContainersBuffer(encoder.encode(value));
     }
-    return new _WelfordBuffer(value != null ? value : 0);
+    return new _OpenContainersBuffer(value != null ? value : 0);
   }
   static alloc(size, fill = 0, encoding = "utf8") {
     var _a2;
-    const buffer = new _WelfordBuffer(size);
-    if (typeof fill === "string") __privateMethod(_a2 = buffer, _WelfordBuffer_instances, fillString_fn).call(_a2, fill, encoding);
+    const buffer = new _OpenContainersBuffer(size);
+    if (typeof fill === "string") __privateMethod(_a2 = buffer, _OpenContainersBuffer_instances, fillString_fn).call(_a2, fill, encoding);
     else buffer.fill(fill);
     return buffer;
   }
   static allocUnsafe(size) {
-    return new _WelfordBuffer(size);
+    return new _OpenContainersBuffer(size);
   }
   static allocUnsafeSlow(size) {
-    return _WelfordBuffer.allocUnsafe(size);
+    return _OpenContainersBuffer.allocUnsafe(size);
   }
   static concat(chunks, totalLength) {
     const size = totalLength != null ? totalLength : chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
-    const buffer = new _WelfordBuffer(size);
+    const buffer = new _OpenContainersBuffer(size);
     let offset = 0;
     for (const chunk of chunks) {
-      const bytes = _WelfordBuffer.from(chunk);
+      const bytes = _OpenContainersBuffer.from(chunk);
       buffer.set(bytes.subarray(0, Math.max(0, size - offset)), offset);
       offset += bytes.byteLength;
       if (offset >= size) break;
@@ -1957,7 +1957,7 @@ var _WelfordBuffer = class _WelfordBuffer extends Uint8Array {
     return buffer;
   }
   static byteLength(value, encoding) {
-    return _WelfordBuffer.from(value, encoding).byteLength;
+    return _OpenContainersBuffer.from(value, encoding).byteLength;
   }
   static isBuffer(value) {
     return value instanceof Uint8Array;
@@ -1979,7 +1979,7 @@ var _WelfordBuffer = class _WelfordBuffer extends Uint8Array {
       encoding = length;
       length = void 0;
     }
-    const bytes = _WelfordBuffer.from(String(string), encoding);
+    const bytes = _OpenContainersBuffer.from(String(string), encoding);
     const writable = Math.min(length != null ? length : bytes.length, bytes.length, this.length - offset);
     this.set(bytes.subarray(0, Math.max(0, writable)), offset);
     return Math.max(0, writable);
@@ -1991,12 +1991,12 @@ var _WelfordBuffer = class _WelfordBuffer extends Uint8Array {
     return Math.max(0, writable);
   }
   equals(other) {
-    const bytes = _WelfordBuffer.from(other);
+    const bytes = _OpenContainersBuffer.from(other);
     if (bytes.length !== this.length) return false;
     return this.every((byte, index) => byte === bytes[index]);
   }
   compare(other) {
-    const bytes = _WelfordBuffer.from(other);
+    const bytes = _OpenContainersBuffer.from(other);
     const length = Math.min(this.length, bytes.length);
     for (let index = 0; index < length; index++) {
       if (this[index] !== bytes[index]) return this[index] < bytes[index] ? -1 : 1;
@@ -2083,18 +2083,18 @@ var _WelfordBuffer = class _WelfordBuffer extends Uint8Array {
     return this.writeUInt32LE(value, offset);
   }
 };
-_WelfordBuffer_instances = new WeakSet();
+_OpenContainersBuffer_instances = new WeakSet();
 fillString_fn = function(value, encoding) {
-  const bytes = _WelfordBuffer.from(value, encoding);
+  const bytes = _OpenContainersBuffer.from(value, encoding);
   if (!bytes.length) return;
   for (let offset = 0; offset < this.length; offset += bytes.length) {
     this.set(bytes.subarray(0, Math.min(bytes.length, this.length - offset)), offset);
   }
 };
-var WelfordBuffer = _WelfordBuffer;
-WelfordBuffer.poolSize = 8192;
+var OpenContainersBuffer = _OpenContainersBuffer;
+OpenContainersBuffer.poolSize = 8192;
 var _a;
-var RuntimeBuffer = (_a = globalThis.Buffer) != null ? _a : WelfordBuffer;
+var RuntimeBuffer = (_a = globalThis.Buffer) != null ? _a : OpenContainersBuffer;
 if (typeof globalThis.Buffer === "undefined") globalThis.Buffer = RuntimeBuffer;
 function bytesToBase642(bytes) {
   let binary = "";
@@ -2102,7 +2102,7 @@ function bytesToBase642(bytes) {
     binary += String.fromCharCode(...bytes.slice(index, index + 32768));
   }
   if (typeof btoa === "function") return btoa(binary);
-  if (globalThis.Buffer && globalThis.Buffer !== WelfordBuffer) {
+  if (globalThis.Buffer && globalThis.Buffer !== OpenContainersBuffer) {
     return globalThis.Buffer.from(bytes).toString("base64");
   }
   throw new Error("base64 encoding is unavailable in this runtime");
@@ -2111,12 +2111,12 @@ function base64ToBytes(value) {
   const normalized = String(value).replace(/\s+/g, "");
   if (typeof atob === "function") {
     const binary = atob(normalized);
-    const bytes = new WelfordBuffer(binary.length);
+    const bytes = new OpenContainersBuffer(binary.length);
     for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
     return bytes;
   }
-  if (globalThis.Buffer && globalThis.Buffer !== WelfordBuffer) {
-    return new WelfordBuffer(globalThis.Buffer.from(normalized, "base64"));
+  if (globalThis.Buffer && globalThis.Buffer !== OpenContainersBuffer) {
+    return new OpenContainersBuffer(globalThis.Buffer.from(normalized, "base64"));
   }
   throw new Error("base64 decoding is unavailable in this runtime");
 }
@@ -2218,18 +2218,18 @@ var Readable = class extends Stream {
     __privateAdd(this, _Readable_instances);
     this.readable = true;
     this.destroyed = false;
-    this._welfordReadableBuffer = [];
-    this._welfordReadableEnded = false;
-    this._welfordReadableEndEmitted = false;
+    this._opencontainersReadableBuffer = [];
+    this._opencontainersReadableEnded = false;
+    this._opencontainersReadableEndEmitted = false;
   }
   push(chunk) {
     if (chunk === null) {
-      this._welfordReadableEnded = true;
+      this._opencontainersReadableEnded = true;
       __privateMethod(this, _Readable_instances, flushReadable_fn).call(this);
       return false;
     }
     if (this.listenerCount("data")) this.emit("data", chunk);
-    else this._welfordReadableBuffer.push(chunk);
+    else this._opencontainersReadableBuffer.push(chunk);
     return true;
   }
   on(eventName, listener) {
@@ -2267,11 +2267,11 @@ var Readable = class extends Stream {
 };
 _Readable_instances = new WeakSet();
 flushReadable_fn = function() {
-  while (this._welfordReadableBuffer.length && this.listenerCount("data")) {
-    this.emit("data", this._welfordReadableBuffer.shift());
+  while (this._opencontainersReadableBuffer.length && this.listenerCount("data")) {
+    this.emit("data", this._opencontainersReadableBuffer.shift());
   }
-  if (this._welfordReadableEnded && !this._welfordReadableEndEmitted && this._welfordReadableBuffer.length === 0) {
-    this._welfordReadableEndEmitted = true;
+  if (this._opencontainersReadableEnded && !this._opencontainersReadableEndEmitted && this._opencontainersReadableBuffer.length === 0) {
+    this._opencontainersReadableEndEmitted = true;
     this.emit("end");
     this.emit("close");
   }
@@ -2339,7 +2339,7 @@ function Transform(options = {}) {
   this.readable = true;
   this.writable = true;
   this.destroyed = false;
-  this._welfordTransformOptions = options;
+  this._opencontainersTransformOptions = options;
 }
 Transform.prototype = Object.create(Stream.prototype);
 Transform.prototype.constructor = Transform;
@@ -2732,15 +2732,15 @@ var readline_default = {
 };
 
 // packages/runtime-node/src/builtins/process.js
-var WELFORD_NODE_VERSION = "26.0.0-welford";
-var WELFORD_PROCESS_VERSION = `v${WELFORD_NODE_VERSION}`;
-var WELFORD_V8_VERSION = "14.3.127.18-node.10";
-var WELFORD_VERSIONS = {
-  node: WELFORD_NODE_VERSION,
-  v8: WELFORD_V8_VERSION,
+var OPENCONTAINERS_NODE_VERSION = "26.0.0-opencontainers";
+var OPENCONTAINERS_PROCESS_VERSION = `v${OPENCONTAINERS_NODE_VERSION}`;
+var OPENCONTAINERS_V8_VERSION = "14.3.127.18-node.10";
+var OPENCONTAINERS_VERSIONS = {
+  node: OPENCONTAINERS_NODE_VERSION,
+  v8: OPENCONTAINERS_V8_VERSION,
   modules: "144",
   napi: "10",
-  welford: "0.1.0"
+  opencontainers: "0.1.0"
 };
 function createProcessBuiltin({ descriptor, kernel }) {
   var _a2, _b, _c;
@@ -2750,10 +2750,10 @@ function createProcessBuiltin({ descriptor, kernel }) {
   proc.argv = [...descriptor.argv];
   proc.execPath = "/bin/node";
   proc.env = descriptor.env;
-  proc.platform = "welford";
+  proc.platform = "opencontainers";
   proc.arch = "wasm";
-  proc.version = WELFORD_PROCESS_VERSION;
-  proc.versions = { ...WELFORD_VERSIONS };
+  proc.version = OPENCONTAINERS_PROCESS_VERSION;
+  proc.versions = { ...OPENCONTAINERS_VERSIONS };
   Object.defineProperty(proc, "exitCode", {
     get: () => descriptor.exitCode,
     set: (code) => {
@@ -2770,7 +2770,7 @@ function createProcessBuiltin({ descriptor, kernel }) {
   };
   proc.exit = (code = 0) => {
     throw Object.assign(new Error(`Process exited with code ${code}`), {
-      code: "WELFORD_PROCESS_EXIT",
+      code: "OPENCONTAINERS_PROCESS_EXIT",
       exitCode: Number(code) || 0
     });
   };
@@ -2780,10 +2780,10 @@ function createProcessBuiltin({ descriptor, kernel }) {
 `);
   (_b = descriptor.refCount) != null ? _b : descriptor.refCount = 0;
   (_c = descriptor.cleanupTasks) != null ? _c : descriptor.cleanupTasks = /* @__PURE__ */ new Set();
-  proc.__welfordAddRef = () => {
+  proc.__opencontainersAddRef = () => {
     descriptor.refCount++;
   };
-  proc.__welfordUnref = () => {
+  proc.__opencontainersUnref = () => {
     descriptor.refCount = Math.max(0, descriptor.refCount - 1);
     if (descriptor.refCount === 0) {
       queueMicrotask(() => {
@@ -2792,11 +2792,11 @@ function createProcessBuiltin({ descriptor, kernel }) {
       });
     }
   };
-  proc.__welfordOnExit = (cleanup) => {
+  proc.__opencontainersOnExit = (cleanup) => {
     descriptor.cleanupTasks.add(cleanup);
     return () => descriptor.cleanupTasks.delete(cleanup);
   };
-  proc.__welfordIsAlive = () => descriptor.status !== "exited" && descriptor.status !== "killed";
+  proc.__opencontainersIsAlive = () => descriptor.status !== "exited" && descriptor.status !== "killed";
   return proc;
 }
 
@@ -2917,7 +2917,7 @@ var ClientRequest = class extends Writable {
     __privateSet(this, _process, process);
     __privateSet(this, _callback, callback);
     __privateSet(this, _chunks, chunks);
-    (_i = process.__welfordAddRef) == null ? void 0 : _i.call(process);
+    (_i = process.__opencontainersAddRef) == null ? void 0 : _i.call(process);
   }
   setHeader(name, value) {
     this.headers[String(name).toLowerCase()] = String(value);
@@ -2964,7 +2964,7 @@ dispatch_fn = async function() {
   } finally {
     queueMicrotask(() => {
       var _a3, _b;
-      return (_b = (_a3 = __privateGet(this, _process)).__welfordUnref) == null ? void 0 : _b.call(_a3);
+      return (_b = (_a3 = __privateGet(this, _process)).__opencontainersUnref) == null ? void 0 : _b.call(_a3);
     });
   }
 };
@@ -2972,7 +2972,7 @@ dispatchVirtual_fn = async function(body) {
   var _a2, _b, _c, _d;
   return __privateGet(this, _kernel).dispatchHttpRequest({
     id: (_c = (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) == null ? void 0 : _b.call(_a2)) != null ? _c : Math.random().toString(16).slice(2),
-    projectId: (_d = __privateGet(this, _process).env.WELFORD_PROJECT_ID) != null ? _d : "default",
+    projectId: (_d = __privateGet(this, _process).env.OPENCONTAINERS_PROJECT_ID) != null ? _d : "default",
     port: this.port,
     method: this.method,
     url: this.path,
@@ -2985,12 +2985,12 @@ dispatchExternal_fn = async function(body) {
   const requestUrl = new URL(url);
   if (isHostPageOrigin(requestUrl)) {
     throw Object.assign(new Error(`Host application request blocked: ${requestUrl.href}`), {
-      code: "ERR_WELFORD_HOST_ORIGIN_BLOCKED"
+      code: "ERR_OPENCONTAINERS_HOST_ORIGIN_BLOCKED"
     });
   }
   if (__privateGet(this, _kernel).allowExternalNetwork !== true) {
     throw Object.assign(new Error(`External network request blocked: ${requestUrl.href}`), {
-      code: "ERR_WELFORD_EXTERNAL_NETWORK_BLOCKED"
+      code: "ERR_OPENCONTAINERS_EXTERNAL_NETWORK_BLOCKED"
     });
   }
   const response = await fetch(requestUrl.href, {
@@ -3094,7 +3094,7 @@ function createHttpBuiltin({ kernel, process }) {
         const callback = typeof hostOrCallback === "function" ? hostOrCallback : maybeCallback;
         const host = typeof hostOrCallback === "string" ? hostOrCallback : "0.0.0.0";
         const assignedPort = kernel.registerPort({
-          projectId: (_a2 = process.env.WELFORD_PROJECT_ID) != null ? _a2 : "default",
+          projectId: (_a2 = process.env.OPENCONTAINERS_PROJECT_ID) != null ? _a2 : "default",
           pid: process.pid,
           port,
           host,
@@ -3110,7 +3110,7 @@ function createHttpBuiltin({ kernel, process }) {
           })
         });
         kernel.registerWebSocketServer({
-          projectId: (_b = process.env.WELFORD_PROJECT_ID) != null ? _b : "default",
+          projectId: (_b = process.env.OPENCONTAINERS_PROJECT_ID) != null ? _b : "default",
           port: assignedPort,
           handler: (socket, request2) => {
             var _a3;
@@ -3234,7 +3234,7 @@ function virtualServerErrorResponse(error) {
     statusText: "Internal Server Error",
     headers: [
       ["content-type", "text/plain; charset=utf-8"],
-      ["x-welford-error", "unhandled-virtual-server-error"]
+      ["x-opencontainers-error", "unhandled-virtual-server-error"]
     ],
     body: new TextEncoder().encode(`Unhandled virtual server error: ${message}
 `)
@@ -3277,7 +3277,7 @@ function createNetBuiltin({ kernel, process }) {
       var _a2, _b;
       const options = normalizeListenArgs(args);
       const assignedPort = kernel.listenNet({
-        projectId: (_a2 = process.env.WELFORD_PROJECT_ID) != null ? _a2 : "default",
+        projectId: (_a2 = process.env.OPENCONTAINERS_PROJECT_ID) != null ? _a2 : "default",
         pid: process.pid,
         port: options.port,
         host: options.host,
@@ -3321,14 +3321,14 @@ function createNetBuiltin({ kernel, process }) {
     var _a2, _b;
     const options = normalizeConnectArgs(args);
     const socket = kernel.connectNet({
-      projectId: (_a2 = process.env.WELFORD_PROJECT_ID) != null ? _a2 : "default",
+      projectId: (_a2 = process.env.OPENCONTAINERS_PROJECT_ID) != null ? _a2 : "default",
       port: options.port,
       host: options.host
     });
-    (_b = process.__welfordAddRef) == null ? void 0 : _b.call(process);
+    (_b = process.__opencontainersAddRef) == null ? void 0 : _b.call(process);
     socket.once("close", () => {
       var _a3;
-      return (_a3 = process.__welfordUnref) == null ? void 0 : _a3.call(process);
+      return (_a3 = process.__opencontainersUnref) == null ? void 0 : _a3.call(process);
     });
     options.callback && socket.once("connect", options.callback);
     return socket;
@@ -3412,24 +3412,24 @@ function createChildProcessBuiltin({ kernel, process }) {
     var _a2, _b, _c, _d;
     if (kernel.allowChildProcesses === false) {
       throw Object.assign(new Error("Child process spawning is disabled for this project"), {
-        code: "ERR_WELFORD_CHILD_PROCESS_PERMISSION"
+        code: "ERR_OPENCONTAINERS_CHILD_PROCESS_PERMISSION"
       });
     }
-    (_a2 = process.__welfordAddRef) == null ? void 0 : _a2.call(process);
+    (_a2 = process.__opencontainersAddRef) == null ? void 0 : _a2.call(process);
     const virtualProcess = kernel.spawn(command, args, {
       cwd: (_b = options.cwd) != null ? _b : process.cwd(),
       env: { ...process.env, ...(_c = options.env) != null ? _c : {} },
-      projectId: (_d = process.env.WELFORD_PROJECT_ID) != null ? _d : "default",
+      projectId: (_d = process.env.OPENCONTAINERS_PROJECT_ID) != null ? _d : "default",
       parentPid: process.pid
     });
     const child = childHandleFromVirtualProcess(virtualProcess);
     child.on("close", () => {
       var _a3;
-      return (_a3 = process.__welfordUnref) == null ? void 0 : _a3.call(process);
+      return (_a3 = process.__opencontainersUnref) == null ? void 0 : _a3.call(process);
     });
     child.on("error", () => {
       var _a3;
-      return (_a3 = process.__welfordUnref) == null ? void 0 : _a3.call(process);
+      return (_a3 = process.__opencontainersUnref) == null ? void 0 : _a3.call(process);
     });
     return child;
   };
@@ -3455,7 +3455,7 @@ function createChildProcessBuiltin({ kernel, process }) {
     return kernel.spawnSync(command, args, {
       cwd: (_a2 = options.cwd) != null ? _a2 : process.cwd(),
       env: { ...process.env, ...(_b = options.env) != null ? _b : {} },
-      projectId: (_c = process.env.WELFORD_PROJECT_ID) != null ? _c : "default",
+      projectId: (_c = process.env.OPENCONTAINERS_PROJECT_ID) != null ? _c : "default",
       parentPid: process.pid
     });
   };
@@ -3485,22 +3485,22 @@ function createChildProcessBuiltin({ kernel, process }) {
 var nextTimerId = 1;
 function createTimerApi({ process } = {}) {
   const setTimeoutCompat = (callback, delay = 0, ...args) => {
-    const handle = new WelfordTimerHandle({ kind: "timeout", process, callback, args, delay });
+    const handle = new OpenContainersTimerHandle({ kind: "timeout", process, callback, args, delay });
     handle.start();
     return handle;
   };
   const setIntervalCompat = (callback, delay = 0, ...args) => {
-    const handle = new WelfordTimerHandle({ kind: "interval", process, callback, args, delay, repeat: true });
+    const handle = new OpenContainersTimerHandle({ kind: "interval", process, callback, args, delay, repeat: true });
     handle.start();
     return handle;
   };
   const setImmediateCompat = (callback, ...args) => {
-    const handle = new WelfordTimerHandle({ kind: "immediate", process, callback, args, delay: 0 });
+    const handle = new OpenContainersTimerHandle({ kind: "immediate", process, callback, args, delay: 0 });
     handle.start();
     return handle;
   };
   const clearTimer = (handle) => {
-    if (handle instanceof WelfordTimerHandle) {
+    if (handle instanceof OpenContainersTimerHandle) {
       handle.close();
       return;
     }
@@ -3534,7 +3534,7 @@ function createTimerApi({ process } = {}) {
     }
   };
 }
-var WelfordTimerHandle = class {
+var OpenContainersTimerHandle = class {
   constructor({ kind, process, callback, args = [], delay = 0, repeat = false }) {
     var _a2, _b, _c, _d;
     this.kind = kind;
@@ -3548,8 +3548,8 @@ var WelfordTimerHandle = class {
     this.active = true;
     this.refed = true;
     this.refreshedDuringCallback = false;
-    (_b = (_a2 = this.process) == null ? void 0 : _a2.__welfordAddRef) == null ? void 0 : _b.call(_a2);
-    this.disposeExitHook = (_d = (_c = this.process) == null ? void 0 : _c.__welfordOnExit) == null ? void 0 : _d.call(_c, () => this.close({ releaseRef: false }));
+    (_b = (_a2 = this.process) == null ? void 0 : _a2.__opencontainersAddRef) == null ? void 0 : _b.call(_a2);
+    this.disposeExitHook = (_d = (_c = this.process) == null ? void 0 : _c.__opencontainersOnExit) == null ? void 0 : _d.call(_c, () => this.close({ releaseRef: false }));
   }
   start() {
     if (this.kind === "interval") this.nativeHandle = globalThis.setInterval(() => this.fire(), this.delay);
@@ -3563,7 +3563,7 @@ var WelfordTimerHandle = class {
   fire() {
     var _a2, _b, _c, _d, _e, _f, _g;
     if (!this.active) return;
-    if (((_b = (_a2 = this.process) == null ? void 0 : _a2.__welfordIsAlive) == null ? void 0 : _b.call(_a2)) === false) {
+    if (((_b = (_a2 = this.process) == null ? void 0 : _a2.__opencontainersIsAlive) == null ? void 0 : _b.call(_a2)) === false) {
       this.close();
       return;
     }
@@ -3588,14 +3588,14 @@ var WelfordTimerHandle = class {
     this.disposeExitHook = null;
     if (releaseRef && this.refed) {
       this.refed = false;
-      (_c = (_b = this.process) == null ? void 0 : _b.__welfordUnref) == null ? void 0 : _c.call(_b);
+      (_c = (_b = this.process) == null ? void 0 : _b.__opencontainersUnref) == null ? void 0 : _c.call(_b);
     }
   }
   ref() {
     var _a2, _b;
     if (this.active && !this.refed) {
       this.refed = true;
-      (_b = (_a2 = this.process) == null ? void 0 : _a2.__welfordAddRef) == null ? void 0 : _b.call(_a2);
+      (_b = (_a2 = this.process) == null ? void 0 : _a2.__opencontainersAddRef) == null ? void 0 : _b.call(_a2);
     }
     return this;
   }
@@ -3603,7 +3603,7 @@ var WelfordTimerHandle = class {
     var _a2, _b;
     if (this.active && this.refed) {
       this.refed = false;
-      (_b = (_a2 = this.process) == null ? void 0 : _a2.__welfordUnref) == null ? void 0 : _b.call(_a2);
+      (_b = (_a2 = this.process) == null ? void 0 : _a2.__opencontainersUnref) == null ? void 0 : _b.call(_a2);
     }
     return this;
   }
@@ -3654,7 +3654,7 @@ function createWorkerThreadsBuiltin({ process, workerContext = null, runWorkerSo
       __privateAdd(this, _refed, false);
       if (typeof runWorkerSource !== "function") {
         throw Object.assign(new Error("node:worker_threads is unavailable in this runtime"), {
-          code: "ERR_WELFORD_WORKER_THREADS_UNAVAILABLE"
+          code: "ERR_OPENCONTAINERS_WORKER_THREADS_UNAVAILABLE"
         });
       }
       this.threadId = nextThreadId++;
@@ -3667,16 +3667,16 @@ function createWorkerThreadsBuiltin({ process, workerContext = null, runWorkerSo
       __privateSet(this, _options, options);
       __privateSet(this, _parentPort, new RuntimeMessagePort());
       __privateSet(this, _workerPort, new RuntimeMessagePort());
-      __privateGet(this, _parentPort).__welfordSetPeer(__privateGet(this, _workerPort));
-      __privateGet(this, _workerPort).__welfordSetPeer(__privateGet(this, _parentPort));
+      __privateGet(this, _parentPort).__opencontainersSetPeer(__privateGet(this, _workerPort));
+      __privateGet(this, _workerPort).__opencontainersSetPeer(__privateGet(this, _parentPort));
       __privateGet(this, _parentPort).on("message", (message) => this.emit("message", message));
       __privateGet(this, _parentPort).on("messageerror", (error) => {
         if (this.listenerCount("messageerror") > 0) this.emit("messageerror", error);
       });
       __privateSet(this, _abortController, typeof AbortController === "function" ? new AbortController() : null);
       __privateSet(this, _refed, true);
-      (_b2 = process == null ? void 0 : process.__welfordAddRef) == null ? void 0 : _b2.call(process);
-      __privateSet(this, _disposeExitHook, (_c = process == null ? void 0 : process.__welfordOnExit) == null ? void 0 : _c.call(process, () => {
+      (_b2 = process == null ? void 0 : process.__opencontainersAddRef) == null ? void 0 : _b2.call(process);
+      __privateSet(this, _disposeExitHook, (_c = process == null ? void 0 : process.__opencontainersOnExit) == null ? void 0 : _c.call(process, () => {
         __privateMethod(this, _Worker_instances, forceTerminate_fn).call(this, 1);
       }));
       queueMicrotask(() => __privateMethod(this, _Worker_instances, start_fn).call(this));
@@ -3696,7 +3696,7 @@ function createWorkerThreadsBuiltin({ process, workerContext = null, runWorkerSo
       var _a3;
       if (!__privateGet(this, _refed) && !__privateGet(this, _exited)) {
         __privateSet(this, _refed, true);
-        (_a3 = process == null ? void 0 : process.__welfordAddRef) == null ? void 0 : _a3.call(process);
+        (_a3 = process == null ? void 0 : process.__opencontainersAddRef) == null ? void 0 : _a3.call(process);
       }
       return this;
     }
@@ -3704,7 +3704,7 @@ function createWorkerThreadsBuiltin({ process, workerContext = null, runWorkerSo
       var _a3;
       if (__privateGet(this, _refed)) {
         __privateSet(this, _refed, false);
-        (_a3 = process == null ? void 0 : process.__welfordUnref) == null ? void 0 : _a3.call(process);
+        (_a3 = process == null ? void 0 : process.__opencontainersUnref) == null ? void 0 : _a3.call(process);
       }
       return this;
     }
@@ -3737,7 +3737,7 @@ function createWorkerThreadsBuiltin({ process, workerContext = null, runWorkerSo
       if (!__privateGet(this, _terminated)) __privateMethod(this, _Worker_instances, finish_fn).call(this, 0);
     } catch (error) {
       if (__privateGet(this, _terminated)) return;
-      if ((error == null ? void 0 : error.code) === "WELFORD_PROCESS_EXIT") {
+      if ((error == null ? void 0 : error.code) === "OPENCONTAINERS_PROCESS_EXIT") {
         __privateMethod(this, _Worker_instances, finish_fn).call(this, (_b2 = error.exitCode) != null ? _b2 : 0);
         return;
       }
@@ -3778,7 +3778,7 @@ function createWorkerThreadsBuiltin({ process, workerContext = null, runWorkerSo
     __privateSet(this, _disposeExitHook, null);
     if (__privateGet(this, _refed)) {
       __privateSet(this, _refed, false);
-      (_b2 = process == null ? void 0 : process.__welfordUnref) == null ? void 0 : _b2.call(process);
+      (_b2 = process == null ? void 0 : process.__opencontainersUnref) == null ? void 0 : _b2.call(process);
     }
     this.emit("exit", __privateGet(this, _exitCode));
   };
@@ -3790,7 +3790,7 @@ function createWorkerThreadsBuiltin({ process, workerContext = null, runWorkerSo
     parentPort: (_a2 = workerContext == null ? void 0 : workerContext.parentPort) != null ? _a2 : null,
     receiveMessageOnPort,
     resourceLimits: {},
-    SHARE_ENV: /* @__PURE__ */ Symbol.for("welford.worker_threads.SHARE_ENV"),
+    SHARE_ENV: /* @__PURE__ */ Symbol.for("opencontainers.worker_threads.SHARE_ENV"),
     threadId: (_b = workerContext == null ? void 0 : workerContext.threadId) != null ? _b : 0,
     workerData: workerContext == null ? void 0 : workerContext.workerData,
     markAsUntransferable() {
@@ -3818,13 +3818,13 @@ var MessagePort = class extends EventEmitter {
     var _a2, _b;
     if (__privateGet(this, _closed) || !__privateGet(this, _peer2) || __privateGet(__privateGet(this, _peer2), _closed)) return;
     const cloned = cloneMessage(message);
-    (_b = (_a2 = __privateGet(this, _process2)) == null ? void 0 : _a2.__welfordAddRef) == null ? void 0 : _b.call(_a2);
+    (_b = (_a2 = __privateGet(this, _process2)) == null ? void 0 : _a2.__opencontainersAddRef) == null ? void 0 : _b.call(_a2);
     queueMicrotask(() => {
       var _a3, _b2, _c;
       try {
         if (__privateGet(this, _peer2) && !__privateGet(__privateGet(this, _peer2), _closed)) __privateMethod(_a3 = __privateGet(this, _peer2), _MessagePort_instances, dispatchMessage_fn).call(_a3, cloned);
       } finally {
-        (_c = (_b2 = __privateGet(this, _process2)) == null ? void 0 : _b2.__welfordUnref) == null ? void 0 : _c.call(_b2);
+        (_c = (_b2 = __privateGet(this, _process2)) == null ? void 0 : _b2.__opencontainersUnref) == null ? void 0 : _c.call(_b2);
       }
     });
   }
@@ -3842,13 +3842,13 @@ var MessagePort = class extends EventEmitter {
   unref() {
     return this;
   }
-  __welfordSetPeer(peer) {
+  __opencontainersSetPeer(peer) {
     __privateSet(this, _peer2, peer);
   }
-  __welfordQueueMessage(message) {
+  __opencontainersQueueMessage(message) {
     __privateGet(this, _queue).push(cloneMessage(message));
   }
-  __welfordReceiveMessage() {
+  __opencontainersReceiveMessage() {
     return __privateGet(this, _queue).length ? { message: __privateGet(this, _queue).shift() } : void 0;
   }
 };
@@ -3867,13 +3867,13 @@ var MessageChannel2 = class {
   constructor({ process } = {}) {
     this.port1 = new MessagePort({ process });
     this.port2 = new MessagePort({ process });
-    this.port1.__welfordSetPeer(this.port2);
-    this.port2.__welfordSetPeer(this.port1);
+    this.port1.__opencontainersSetPeer(this.port2);
+    this.port2.__opencontainersSetPeer(this.port1);
   }
 };
 function receiveMessageOnPort(port) {
   var _a2;
-  return (_a2 = port == null ? void 0 : port.__welfordReceiveMessage) == null ? void 0 : _a2.call(port);
+  return (_a2 = port == null ? void 0 : port.__opencontainersReceiveMessage) == null ? void 0 : _a2.call(port);
 }
 function cloneMessage(value) {
   if (value === void 0) return void 0;
@@ -3889,7 +3889,7 @@ function cloneMessage(value) {
 function transformEsmToCjs(source, { filename }) {
   const exportNames = /* @__PURE__ */ new Map();
   let transformed = source.replace(/\bimport\.meta\.url\b/g, JSON.stringify(`file://${filename}`));
-  transformed = transformed.replace(/\bimport\s*\(([^)]+)\)/g, (_match, specifierExpression) => `__welfordDynamicImport(${specifierExpression})`);
+  transformed = transformed.replace(/\bimport\s*\(([^)]+)\)/g, (_match, specifierExpression) => `__opencontainersDynamicImport(${specifierExpression})`);
   transformed = transformed.replace(/^\s*import\s+["']([^"']+)["'];?\s*$/gm, (_match, specifier) => {
     return `require(${JSON.stringify(specifier)});`;
   });
@@ -3900,13 +3900,13 @@ function transformEsmToCjs(source, { filename }) {
     return `const { ${normalizeImportBindings(imports)} } = require(${JSON.stringify(specifier)});`;
   });
   transformed = transformed.replace(/^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*{([^}]+)}\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, defaultName, imports, specifier) => {
-    const temp = `__welford_import_${defaultName}`;
+    const temp = `__opencontainers_import_${defaultName}`;
     return `const ${temp} = require(${JSON.stringify(specifier)});
 const ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp}.default ?? ${temp});
 const { ${normalizeImportBindings(imports)} } = ${temp};`;
   });
   transformed = transformed.replace(/^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, defaultName, specifier) => {
-    const temp = `__welford_import_${defaultName}`;
+    const temp = `__opencontainers_import_${defaultName}`;
     return `const ${temp} = require(${JSON.stringify(specifier)});
 const ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp}.default ?? ${temp});`;
   });
@@ -3915,20 +3915,20 @@ const ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp
       exportNames.set("default", name);
       return `${prefix}${indent}function ${name}(`;
     }
-    exportNames.set("default", "__welford_default_export");
-    return `${prefix}${indent}function __welford_default_export(`;
+    exportNames.set("default", "__opencontainers_default_export");
+    return `${prefix}${indent}function __opencontainers_default_export(`;
   });
   transformed = transformed.replace(/(^|[;\n])(\s*)export\s+default\s+class\s*([A-Za-z_$][\w$]*)?\s*/g, (_match, prefix, indent, name) => {
     if (name) {
       exportNames.set("default", name);
       return `${prefix}${indent}class ${name} `;
     }
-    exportNames.set("default", "__welford_default_export");
-    return `${prefix}${indent}class __welford_default_export `;
+    exportNames.set("default", "__opencontainers_default_export");
+    return `${prefix}${indent}class __opencontainers_default_export `;
   });
   transformed = transformed.replace(/(^|[;\n])(\s*)export\s+default\s+([^;\n]+);?/g, (_match, prefix, indent, expression) => {
-    return `${prefix}${indent}const __welford_default_export = ${trimTrailingSemicolon(expression)};
-${indent}exports.default = __welford_default_export;
+    return `${prefix}${indent}const __opencontainers_default_export = ${trimTrailingSemicolon(expression)};
+${indent}exports.default = __opencontainers_default_export;
 ${indent}exports.__esModule = true;`;
   });
   transformed = transformed.replace(/(^|[;\n])(\s*)export\s+(const|let|var)\s+([^;]+);?/g, (_match, prefix, indent, kind, declaration) => {
@@ -3945,12 +3945,12 @@ ${indent}exports.__esModule = true;`;
     return `${prefix}${indent}class ${name} `;
   });
   transformed = transformed.replace(/^\s*export\s+{([^}]*)}\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, exportsList, specifier) => {
-    const temp = `__welford_reexport_${Math.random().toString(16).slice(2)}`;
+    const temp = `__opencontainers_reexport_${Math.random().toString(16).slice(2)}`;
     return `const ${temp} = require(${JSON.stringify(specifier)});
 ${normalizeExportList(exportsList).map(({ local, exported }) => `exports[${JSON.stringify(exported)}] = ${temp}[${JSON.stringify(local)}];`).join("\n")}`;
   });
   transformed = transformed.replace(/^\s*export\s+\*\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, specifier) => {
-    const temp = `__welford_reexport_all_${Math.random().toString(16).slice(2)}`;
+    const temp = `__opencontainers_reexport_all_${Math.random().toString(16).slice(2)}`;
     return `const ${temp} = require(${JSON.stringify(specifier)});
 for (const key of Object.keys(${temp})) if (key !== 'default' && key !== '__esModule') exports[key] = ${temp}[key];`;
   });
@@ -4104,13 +4104,13 @@ var _ModuleLoader = class _ModuleLoader {
       "clearInterval",
       "setImmediate",
       "clearImmediate",
-      "__welfordGlobals",
+      "__opencontainersGlobals",
       "fetch",
-      "__welfordDynamicImport",
-      `with (__welfordGlobals) {
+      "__opencontainersDynamicImport",
+      `with (__opencontainersGlobals) {
 ${executableSource}
 }
-//# sourceURL=welford://${resolved}`
+//# sourceURL=opencontainers://${resolved}`
     );
     wrapped(
       module.exports,
@@ -4162,15 +4162,15 @@ ${executableSource}
       "clearInterval",
       "setImmediate",
       "clearImmediate",
-      "__welfordGlobals",
+      "__opencontainersGlobals",
       "fetch",
-      "__welfordDynamicImport",
+      "__opencontainersDynamicImport",
       `return (async () => {
-with (__welfordGlobals) {
+with (__opencontainersGlobals) {
 ${executableSource}
 }
 })();
-//# sourceURL=welford://${resolved}`
+//# sourceURL=opencontainers://${resolved}`
     );
     await wrapped(
       module.exports,
@@ -4281,9 +4281,9 @@ ${executableSource}
     }
     if (name === "os") {
       return {
-        platform: () => "welford",
+        platform: () => "opencontainers",
         arch: () => "wasm",
-        homedir: () => "/home/welford",
+        homedir: () => "/home/opencontainers",
         tmpdir: () => "/tmp",
         cpus: () => [{ model: "virtual", speed: 0 }],
         EOL: "\n"
@@ -4307,11 +4307,11 @@ ${executableSource}
   }
   dynamicImport(specifier, parentFilename) {
     var _a2, _b;
-    (_b = (_a2 = this.process).__welfordAddRef) == null ? void 0 : _b.call(_a2);
+    (_b = (_a2 = this.process).__opencontainersAddRef) == null ? void 0 : _b.call(_a2);
     const promise = Promise.resolve().then(() => this.import(specifier, parentFilename));
     promise.finally(() => queueMicrotask(() => {
       var _a3, _b2;
-      return (_b2 = (_a3 = this.process).__welfordUnref) == null ? void 0 : _b2.call(_a3);
+      return (_b2 = (_a3 = this.process).__opencontainersUnref) == null ? void 0 : _b2.call(_a3);
     }));
     return promise;
   }
@@ -4373,15 +4373,15 @@ ${executableSource}
       "clearInterval",
       "setImmediate",
       "clearImmediate",
-      "__welfordGlobals",
+      "__opencontainersGlobals",
       "fetch",
-      "__welfordDynamicImport",
+      "__opencontainersDynamicImport",
       `return (async () => {
-with (__welfordGlobals) {
+with (__opencontainersGlobals) {
 ${executableSource}
 }
 })();
-//# sourceURL=welford://${filename}`
+//# sourceURL=opencontainers://${filename}`
     );
     await wrapped(
       module.exports,
@@ -4410,17 +4410,17 @@ ${executableSource}
       (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.getRandomValues) == null ? void 0 : _b.call(_a2, bytes);
       const buffer = RuntimeBuffer.from(bytes);
       if (typeof callback === "function") {
-        (_d = (_c = this.process).__welfordAddRef) == null ? void 0 : _d.call(_c);
+        (_d = (_c = this.process).__opencontainersAddRef) == null ? void 0 : _d.call(_c);
         queueMicrotask(() => {
           var _a3, _b2, _c2, _d2, _e, _f, _g, _h;
           try {
-            if (((_b2 = (_a3 = this.process).__welfordIsAlive) == null ? void 0 : _b2.call(_a3)) !== false) callback(null, buffer);
+            if (((_b2 = (_a3 = this.process).__opencontainersIsAlive) == null ? void 0 : _b2.call(_a3)) !== false) callback(null, buffer);
           } catch (error) {
             (_f = (_c2 = this.process.stderr) == null ? void 0 : _c2.write) == null ? void 0 : _f.call(_c2, `${(_e = (_d2 = error == null ? void 0 : error.stack) != null ? _d2 : error == null ? void 0 : error.message) != null ? _e : error}
 `);
             this.process.exitCode = 1;
           } finally {
-            (_h = (_g = this.process).__welfordUnref) == null ? void 0 : _h.call(_g);
+            (_h = (_g = this.process).__opencontainersUnref) == null ? void 0 : _h.call(_g);
           }
         });
         return void 0;
@@ -4430,7 +4430,7 @@ ${executableSource}
     return {
       randomUUID: () => {
         var _a2, _b, _c;
-        return (_c = (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) == null ? void 0 : _b.call(_a2)) != null ? _c : `welford-${Math.random().toString(16).slice(2)}`;
+        return (_c = (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) == null ? void 0 : _b.call(_a2)) != null ? _c : `opencontainers-${Math.random().toString(16).slice(2)}`;
       },
       randomBytes,
       createHash: (algorithm) => {
@@ -4454,7 +4454,7 @@ ${executableSource}
       gzipSync: (input) => RuntimeBuffer.from(input),
       gunzipSync: (input) => RuntimeBuffer.from(input),
       createGzip: () => {
-        throw Object.assign(new Error("zlib streams are not implemented yet"), { code: "ERR_WELFORD_ZLIB_STREAM_UNSUPPORTED" });
+        throw Object.assign(new Error("zlib streams are not implemented yet"), { code: "ERR_OPENCONTAINERS_ZLIB_STREAM_UNSUPPORTED" });
       }
     };
   }
@@ -4776,15 +4776,15 @@ var TLSSocket = class {
 var tlsBuiltin = {
   TLSSocket,
   connect() {
-    throw Object.assign(new Error("node:tls client sockets are not supported in Welford Containers V1"), {
-      code: "ERR_WELFORD_TLS_UNSUPPORTED"
+    throw Object.assign(new Error("node:tls client sockets are not supported in OpenContainers V1"), {
+      code: "ERR_OPENCONTAINERS_TLS_UNSUPPORTED"
     });
   },
   createSecureContext: () => ({}),
   rootCertificates: []
 };
 function createRuntimeFetch({ kernel, process }) {
-  return async function welfordFetch(input, init = {}) {
+  return async function openContainersFetch(input, init = {}) {
     var _a2, _b, _c, _d, _e;
     const request = normalizeFetchRequest(input, init);
     const url = new URL(request.url);
@@ -4795,7 +4795,7 @@ function createRuntimeFetch({ kernel, process }) {
     if (isVirtualFetchHost(url.hostname)) {
       const response = await kernel.dispatchHttpRequest({
         id: (_c = (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) == null ? void 0 : _b.call(_a2)) != null ? _c : Math.random().toString(16).slice(2),
-        projectId: (_d = process.env.WELFORD_PROJECT_ID) != null ? _d : "default",
+        projectId: (_d = process.env.OPENCONTAINERS_PROJECT_ID) != null ? _d : "default",
         port: Number(url.port) || 80,
         method: request.method,
         url: `${url.pathname}${url.search}`,
@@ -4806,24 +4806,24 @@ function createRuntimeFetch({ kernel, process }) {
     }
     if (isHostPageOrigin2(url)) {
       throw Object.assign(new Error(`Host application request blocked: ${url.href}`), {
-        code: "ERR_WELFORD_HOST_ORIGIN_BLOCKED"
+        code: "ERR_OPENCONTAINERS_HOST_ORIGIN_BLOCKED"
       });
     }
     if (kernel.allowExternalNetwork !== true) {
       throw Object.assign(new Error(`External network request blocked: ${url.href}`), {
-        code: "ERR_WELFORD_EXTERNAL_NETWORK_BLOCKED"
+        code: "ERR_OPENCONTAINERS_EXTERNAL_NETWORK_BLOCKED"
       });
     }
     if (typeof globalThis.fetch !== "function") {
       throw Object.assign(new Error("External fetch is unavailable in this browser runtime"), {
-        code: "ERR_WELFORD_EXTERNAL_FETCH_UNAVAILABLE"
+        code: "ERR_OPENCONTAINERS_EXTERNAL_FETCH_UNAVAILABLE"
       });
     }
     try {
       return await globalThis.fetch(input, init);
     } catch (error) {
-      throw Object.assign(new Error(`External fetch failed for ${url.href}: ${(_e = error == null ? void 0 : error.message) != null ? _e : error}. Browser CORS and network restrictions still apply in Welford Containers.`), {
-        code: "ERR_WELFORD_EXTERNAL_FETCH_FAILED",
+      throw Object.assign(new Error(`External fetch failed for ${url.href}: ${(_e = error == null ? void 0 : error.message) != null ? _e : error}. Browser CORS and network restrictions still apply in OpenContainers.`), {
+        code: "ERR_OPENCONTAINERS_EXTERNAL_FETCH_FAILED",
         cause: error
       });
     }
@@ -4914,7 +4914,7 @@ var NodeRuntime = class {
       await this.loader.import(filename, `${dirname(filename)}/[entry].js`);
       return (_b = this.loader.process.exitCode) != null ? _b : 0;
     } catch (error) {
-      if ((error == null ? void 0 : error.code) === "WELFORD_PROCESS_EXIT") return error.exitCode;
+      if ((error == null ? void 0 : error.code) === "OPENCONTAINERS_PROCESS_EXIT") return error.exitCode;
       this.descriptor.stderr.write(`${(_d = (_c = error.stack) != null ? _c : error.message) != null ? _d : error}
 `);
       return 1;
@@ -4936,7 +4936,7 @@ var NodeRuntime = class {
       this.loader.require(filename, `${dirname(filename)}/[entry].js`);
       return 0;
     } catch (error) {
-      if ((error == null ? void 0 : error.code) === "WELFORD_PROCESS_EXIT") return error.exitCode;
+      if ((error == null ? void 0 : error.code) === "OPENCONTAINERS_PROCESS_EXIT") return error.exitCode;
       this.descriptor.stderr.write(`${(_c = (_b = error.stack) != null ? _b : error.message) != null ? _c : error}
 `);
       return 1;
@@ -4959,13 +4959,13 @@ var NodeRuntime = class {
       "clearInterval",
       "setImmediate",
       "clearImmediate",
-      "__welfordGlobals",
+      "__opencontainersGlobals",
       "fetch",
-      "__welfordDynamicImport",
-      `with (__welfordGlobals) {
+      "__opencontainersDynamicImport",
+      `with (__opencontainersGlobals) {
 ${source}
 }
-//# sourceURL=welford://${filename}`
+//# sourceURL=opencontainers://${filename}`
     );
     wrapped(
       module.exports,
@@ -5049,7 +5049,7 @@ var ProcessWorkerHost = class extends EventEmitter {
     var _a2;
     if (!this.kernel) {
       throw Object.assign(new Error("ProcessWorkerHost requires a kernel binding before boot"), {
-        code: "ERR_WELFORD_PROCESS_WORKER_KERNEL_MISSING"
+        code: "ERR_OPENCONTAINERS_PROCESS_WORKER_KERNEL_MISSING"
       });
     }
     this.descriptor = {
@@ -5315,7 +5315,7 @@ var ProcessManager = class {
       stderr: new OutputStream(),
       projectId: (_c = options.projectId) != null ? _c : "default"
     };
-    (_e = (_d = descriptor.env).WELFORD_PROJECT_ID) != null ? _e : _d.WELFORD_PROJECT_ID = descriptor.projectId;
+    (_e = (_d = descriptor.env).OPENCONTAINERS_PROJECT_ID) != null ? _e : _d.OPENCONTAINERS_PROJECT_ID = descriptor.projectId;
     return descriptor;
   }
   resolveCommand(command, cwd) {
@@ -5363,11 +5363,11 @@ run_fn = async function(process, command, args) {
   try {
     const resolved = this.resolveCommand(command, process.descriptor.cwd);
     let status;
-    if (resolved.type === "node" && this.processWorkerBackend && !process.descriptor.env.WELFORD_DISABLE_PROCESS_WORKERS) {
+    if (resolved.type === "node" && this.processWorkerBackend && !process.descriptor.env.OPENCONTAINERS_DISABLE_PROCESS_WORKERS) {
       status = await this.processWorkerBackend.run(process, args);
     } else if (resolved.type === "node") {
       status = await new NodeRuntime({ kernel: this.kernel, descriptor: process.descriptor }).execute(args);
-    } else if (resolved.type === "node-bin" && this.processWorkerBackend && !process.descriptor.env.WELFORD_DISABLE_PROCESS_WORKERS) {
+    } else if (resolved.type === "node-bin" && this.processWorkerBackend && !process.descriptor.env.OPENCONTAINERS_DISABLE_PROCESS_WORKERS) {
       status = await this.processWorkerBackend.run(process, [resolved.target, ...args]);
     } else if (resolved.type === "node-bin") {
       status = await new NodeRuntime({ kernel: this.kernel, descriptor: process.descriptor }).execute([resolved.target, ...args]);
@@ -5434,7 +5434,7 @@ runSync_fn = function(process, command, args) {
     const result = resolved.run(args, process.descriptor);
     if (result && typeof result.then === "function") {
       throw Object.assign(new Error(`Command ${command} cannot run synchronously`), {
-        code: "ERR_WELFORD_SYNC_COMMAND_UNSUPPORTED"
+        code: "ERR_OPENCONTAINERS_SYNC_COMMAND_UNSUPPORTED"
       });
     }
     return result != null ? result : 0;
@@ -5596,7 +5596,7 @@ var SyscallRouter = class {
         return this.kernel.dispatchHttpRequest(request.request);
       default:
         throw Object.assign(new Error(`Unsupported syscall: ${request.op}`), {
-          code: "ERR_WELFORD_UNKNOWN_SYSCALL"
+          code: "ERR_OPENCONTAINERS_UNKNOWN_SYSCALL"
         });
     }
   }
@@ -5637,7 +5637,7 @@ var _VirtualWebSocketEndpoint = class _VirtualWebSocketEndpoint extends EventEmi
   }
   send(data) {
     if (this.readyState !== _VirtualWebSocketEndpoint.OPEN) {
-      throw Object.assign(new Error("WebSocket is not open"), { code: "ERR_WELFORD_WS_NOT_OPEN" });
+      throw Object.assign(new Error("WebSocket is not open"), { code: "ERR_OPENCONTAINERS_WS_NOT_OPEN" });
     }
     queueMicrotask(() => {
       var _a2, _b;
@@ -5697,7 +5697,7 @@ var WebSocketManager = class {
     const handler = this.handlers.get(__privateMethod(this, _WebSocketManager_instances, key_fn3).call(this, projectId, port));
     if (!handler) {
       throw Object.assign(new Error(`No virtual WebSocket server is listening on ${projectId}:${port}`), {
-        code: "ERR_WELFORD_WS_SERVER_MISSING"
+        code: "ERR_OPENCONTAINERS_WS_SERVER_MISSING"
       });
     }
     const protocol = Array.isArray(protocols) ? (_a2 = protocols[0]) != null ? _a2 : "" : protocols != null ? protocols : "";
@@ -5802,17 +5802,17 @@ var Kernel = class {
 // packages/embed/src/webcontainer-compatible.js
 var WORKSPACE_ROOT = "/workspace";
 var textDecoder3 = new TextDecoder();
-var _WelfordContainer_instances, handlePortRegister_fn, handlePortUnregister_fn, previewUrl_fn, connectServiceWorker_fn, handleServiceWorkerMessage_fn, writeWorkspaceFile_fn, clearWorkspacePreservingNodeModules_fn, emit_fn2;
-var _WelfordContainer = class _WelfordContainer {
+var _OpenContainer_instances, handlePortRegister_fn, handlePortUnregister_fn, previewUrl_fn, connectServiceWorker_fn, handleServiceWorkerMessage_fn, writeWorkspaceFile_fn, clearWorkspacePreservingNodeModules_fn, emit_fn2;
+var _OpenContainer = class _OpenContainer {
   constructor({
     projectId = "demo",
-    previewBasePath = "/welford/preview",
-    serviceWorkerUrl = "/welford-runtime-sw.js",
+    previewBasePath = "/opencontainers/preview",
+    serviceWorkerUrl = "/opencontainers-runtime-sw.js",
     registerServiceWorker = true,
     serviceWorkerControllerTimeoutMs = 5e3,
     kernel = new Kernel()
   } = {}) {
-    __privateAdd(this, _WelfordContainer_instances);
+    __privateAdd(this, _OpenContainer_instances);
     this.projectId = projectId;
     this.previewBasePath = previewBasePath.replace(/\/$/, "");
     this.serviceWorkerUrl = serviceWorkerUrl;
@@ -5823,16 +5823,16 @@ var _WelfordContainer = class _WelfordContainer {
     this.processes = /* @__PURE__ */ new Set();
     this.serviceWorkerPort = null;
     this.fs = createFsFacade(this);
-    this.kernel.portManager.on("register", (entry) => __privateMethod(this, _WelfordContainer_instances, handlePortRegister_fn).call(this, entry));
-    this.kernel.portManager.on("unregister", (entry) => __privateMethod(this, _WelfordContainer_instances, handlePortUnregister_fn).call(this, entry));
+    this.kernel.portManager.on("register", (entry) => __privateMethod(this, _OpenContainer_instances, handlePortRegister_fn).call(this, entry));
+    this.kernel.portManager.on("unregister", (entry) => __privateMethod(this, _OpenContainer_instances, handlePortUnregister_fn).call(this, entry));
   }
   static async boot(options = {}) {
-    const container = new _WelfordContainer(options);
+    const container = new _OpenContainer(options);
     await container.boot();
     return container;
   }
   async boot() {
-    if (this.registerServiceWorker) await __privateMethod(this, _WelfordContainer_instances, connectServiceWorker_fn).call(this);
+    if (this.registerServiceWorker) await __privateMethod(this, _OpenContainer_instances, connectServiceWorker_fn).call(this);
     return this;
   }
   on(eventName, listener) {
@@ -5844,29 +5844,29 @@ var _WelfordContainer = class _WelfordContainer {
     };
   }
   async mount(tree = {}) {
-    __privateMethod(this, _WelfordContainer_instances, clearWorkspacePreservingNodeModules_fn).call(this);
+    __privateMethod(this, _OpenContainer_instances, clearWorkspacePreservingNodeModules_fn).call(this);
     const files = flattenWebContainerTree(tree);
     for (const [path, contents] of Object.entries(files)) {
-      __privateMethod(this, _WelfordContainer_instances, writeWorkspaceFile_fn).call(this, path, contents);
+      __privateMethod(this, _OpenContainer_instances, writeWorkspaceFile_fn).call(this, path, contents);
     }
   }
   async spawn(command, args = [], options = {}) {
     var _a2;
     if (command === "node" && (args[0] === "-v" || args[0] === "--version")) {
-      return syntheticProcess("v26.0.0-welford\n");
+      return syntheticProcess("v26.0.0-opencontainers\n");
     }
     const normalized = normalizeSpawn(command, args);
     const process = this.kernel.spawn(normalized.command, normalized.args, {
       cwd: WORKSPACE_ROOT,
       env: {
-        WELFORD_PROJECT_ID: this.projectId,
+        OPENCONTAINERS_PROJECT_ID: this.projectId,
         ...(_a2 = options.env) != null ? _a2 : {}
       },
       projectId: this.projectId
     });
     this.processes.add(process);
     process.completed.finally(() => this.processes.delete(process));
-    return new WelfordProcess({ container: this, process });
+    return new OpenContainerProcess({ container: this, process });
   }
   teardown() {
     var _a2, _b;
@@ -5896,20 +5896,20 @@ var _WelfordContainer = class _WelfordContainer {
     };
   }
 };
-_WelfordContainer_instances = new WeakSet();
+_OpenContainer_instances = new WeakSet();
 handlePortRegister_fn = function(entry) {
   if (entry.projectId !== this.projectId) return;
-  const url = __privateMethod(this, _WelfordContainer_instances, previewUrl_fn).call(this, entry.port);
+  const url = __privateMethod(this, _OpenContainer_instances, previewUrl_fn).call(this, entry.port);
   if (this.registerServiceWorker && !this.serviceWorkerPort) {
-    __privateMethod(this, _WelfordContainer_instances, emit_fn2).call(this, "error", new Error(`Server is listening on port ${entry.port}, but browser previews are not available because the Welford preview Service Worker is not controlling this page. Reload the page and run again.`));
+    __privateMethod(this, _OpenContainer_instances, emit_fn2).call(this, "error", new Error(`Server is listening on port ${entry.port}, but browser previews are not available because the OpenContainers preview Service Worker is not controlling this page. Reload the page and run again.`));
     return;
   }
-  __privateMethod(this, _WelfordContainer_instances, emit_fn2).call(this, "port", entry.port, "open", url);
-  __privateMethod(this, _WelfordContainer_instances, emit_fn2).call(this, "server-ready", entry.port, url);
+  __privateMethod(this, _OpenContainer_instances, emit_fn2).call(this, "port", entry.port, "open", url);
+  __privateMethod(this, _OpenContainer_instances, emit_fn2).call(this, "server-ready", entry.port, url);
 };
 handlePortUnregister_fn = function(entry) {
   if (entry.projectId !== this.projectId) return;
-  __privateMethod(this, _WelfordContainer_instances, emit_fn2).call(this, "port", entry.port, "close", __privateMethod(this, _WelfordContainer_instances, previewUrl_fn).call(this, entry.port));
+  __privateMethod(this, _OpenContainer_instances, emit_fn2).call(this, "port", entry.port, "close", __privateMethod(this, _OpenContainer_instances, previewUrl_fn).call(this, entry.port));
 };
 previewUrl_fn = function(port) {
   var _a2;
@@ -5917,7 +5917,7 @@ previewUrl_fn = function(port) {
   if (typeof window !== "undefined" && ((_a2 = window.location) == null ? void 0 : _a2.origin)) {
     return new URL(path, window.location.origin).toString();
   }
-  return `https://run.welford.local${path}`;
+  return `https://run.opencontainers.local${path}`;
 };
 connectServiceWorker_fn = async function() {
   var _a2, _b;
@@ -5932,15 +5932,15 @@ connectServiceWorker_fn = async function() {
     timeoutMs: this.serviceWorkerControllerTimeoutMs
   });
   if (!worker) {
-    __privateMethod(this, _WelfordContainer_instances, emit_fn2).call(this, "error", new Error("Welford preview Service Worker is registered but no active worker is available yet. Reload the page and run again."));
+    __privateMethod(this, _OpenContainer_instances, emit_fn2).call(this, "error", new Error("OpenContainers preview Service Worker is registered but no active worker is available yet. Reload the page and run again."));
     return;
   }
   const channel = new MessageChannel();
   channel.port2.onmessage = (event) => {
-    __privateMethod(this, _WelfordContainer_instances, handleServiceWorkerMessage_fn).call(this, event.data, channel.port2);
+    __privateMethod(this, _OpenContainer_instances, handleServiceWorkerMessage_fn).call(this, event.data, channel.port2);
   };
   (_b = (_a2 = channel.port2).start) == null ? void 0 : _b.call(_a2);
-  worker.postMessage({ type: "WELFORD_CONNECT_KERNEL" }, [channel.port1]);
+  worker.postMessage({ type: "OPENCONTAINERS_CONNECT_KERNEL" }, [channel.port1]);
   this.serviceWorkerPort = channel.port2;
 };
 handleServiceWorkerMessage_fn = async function(message, port) {
@@ -5969,7 +5969,7 @@ writeWorkspaceFile_fn = function(filePath, contents) {
 clearWorkspacePreservingNodeModules_fn = function() {
   const preserved = /* @__PURE__ */ new Set([
     `${WORKSPACE_ROOT}/node_modules`,
-    `${WORKSPACE_ROOT}/package-lock.welford.json`
+    `${WORKSPACE_ROOT}/package-lock.opencontainers.json`
   ]);
   for (const [path] of [...this.kernel.fs.nodes.entries()].sort((left, right) => right[0].length - left[0].length)) {
     if (path === WORKSPACE_ROOT || !path.startsWith(`${WORKSPACE_ROOT}/`)) continue;
@@ -5989,7 +5989,7 @@ emit_fn2 = function(eventName, ...args) {
     }
   }
 };
-var WelfordContainer = _WelfordContainer;
+var OpenContainer = _OpenContainer;
 function waitForServiceWorkerController(serviceWorker, timeoutMs) {
   if (serviceWorker.controller) return Promise.resolve(serviceWorker.controller);
   return new Promise((resolve) => {
@@ -6015,7 +6015,7 @@ async function resolveServiceWorkerMessageTarget({
   if (serviceWorker.controller) return serviceWorker.controller;
   return waitForServiceWorkerController(serviceWorker, timeoutMs);
 }
-var WebContainer = WelfordContainer;
+var WebContainer = OpenContainer;
 function flattenWebContainerTree(tree, prefix = "") {
   var _a2;
   const files = {};
@@ -6031,12 +6031,12 @@ function flattenWebContainerTree(tree, prefix = "") {
   }
   return files;
 }
-function parseWelfordPreviewUrl(url, previewBasePath = "/welford/preview") {
-  const parsed = new URL(url, "https://run.welford.local");
+function parseOpenContainersPreviewUrl(url, previewBasePath = "/opencontainers/preview") {
+  const parsed = new URL(url, "https://run.opencontainers.local");
   const base = previewBasePath.replace(/\/$/, "");
   const marker = `${base}/`;
   const markerIndex = parsed.pathname.lastIndexOf(marker);
-  if (markerIndex === -1) throw new Error(`Not a Welford preview URL: ${parsed.pathname}`);
+  if (markerIndex === -1) throw new Error(`Not a OpenContainers preview URL: ${parsed.pathname}`);
   const rest = parsed.pathname.slice(markerIndex + marker.length);
   const slashIndex = rest.indexOf("/");
   const projectSegment = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
@@ -6051,11 +6051,11 @@ function parseWelfordPreviewUrl(url, previewBasePath = "/welford/preview") {
 function parsePreviewRequest(request, previewBasePath, fallbackProjectId) {
   var _a2;
   try {
-    return parseWelfordPreviewUrl(request.url, previewBasePath);
+    return parseOpenContainersPreviewUrl(request.url, previewBasePath);
   } catch (error) {
     const port = Number(request.port);
     if (!Number.isFinite(port) || port <= 0) throw error;
-    const parsed = new URL(request.url || "/", "https://run.welford.local");
+    const parsed = new URL(request.url || "/", "https://run.opencontainers.local");
     return {
       projectId: (_a2 = request.projectId) != null ? _a2 : fallbackProjectId,
       port,
@@ -6064,7 +6064,7 @@ function parsePreviewRequest(request, previewBasePath, fallbackProjectId) {
     };
   }
 }
-function createWelfordServiceWorkerScript({ previewBasePath = "/welford/preview" } = {}) {
+function createOpenContainersServiceWorkerScript({ previewBasePath = "/opencontainers/preview" } = {}) {
   return `
 const previewBasePath = ${JSON.stringify(previewBasePath.replace(/\/$/, ""))};
 let kernelPort = null;
@@ -6072,7 +6072,7 @@ const pending = new Map();
 self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
 self.addEventListener("message", event => {
-  if (event.data?.type === "WELFORD_CONNECT_KERNEL" && event.ports?.[0]) {
+  if (event.data?.type === "OPENCONTAINERS_CONNECT_KERNEL" && event.ports?.[0]) {
     kernelPort = event.ports[0];
     kernelPort.onmessage = handleKernelMessage;
     kernelPort.start?.();
@@ -6092,7 +6092,7 @@ function handleKernelMessage(event) {
   pendingRequest.resolve(message.payload);
 }
 async function handlePreviewFetch(request) {
-  if (!kernelPort) return new Response("Welford runtime is not connected", { status: 503 });
+  if (!kernelPort) return new Response("OpenContainers runtime is not connected", { status: 503 });
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : new Uint8Array(await request.arrayBuffer());
   const payload = await requestKernel("dispatchHttp", {
     url: request.url,
@@ -6101,7 +6101,7 @@ async function handlePreviewFetch(request) {
     body
   });
   if (!payload.ok) {
-    return new Response(payload.error?.message || "Welford preview request failed", { status: 500 });
+    return new Response(payload.error?.message || "OpenContainers preview request failed", { status: 500 });
   }
   const response = payload.response || {};
   const headers = new Headers(response.headers || []);
@@ -6116,7 +6116,7 @@ function requestKernel(type, payload) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       pending.delete(id);
-      reject(new Error("Timed out waiting for Welford runtime"));
+      reject(new Error("Timed out waiting for OpenContainers runtime"));
     }, 30000);
     pending.set(id, { resolve: value => {
       clearTimeout(timeout);
@@ -6127,13 +6127,13 @@ function requestKernel(type, payload) {
 }
 `;
 }
-var _WelfordProcess_instances, createOutputStream_fn;
-var WelfordProcess = class {
+var _OpenContainerProcess_instances, createOutputStream_fn;
+var OpenContainerProcess = class {
   constructor({ container, process }) {
-    __privateAdd(this, _WelfordProcess_instances);
+    __privateAdd(this, _OpenContainerProcess_instances);
     this.container = container;
     this.process = process;
-    this.output = __privateMethod(this, _WelfordProcess_instances, createOutputStream_fn).call(this);
+    this.output = __privateMethod(this, _OpenContainerProcess_instances, createOutputStream_fn).call(this);
     this.exit = process.completed.then((result) => result.status);
   }
   kill(signal = "SIGTERM") {
@@ -6142,7 +6142,7 @@ var WelfordProcess = class {
     }
   }
 };
-_WelfordProcess_instances = new WeakSet();
+_OpenContainerProcess_instances = new WeakSet();
 createOutputStream_fn = function() {
   const process = this.process;
   return new ReadableStream({
@@ -6232,8 +6232,8 @@ function randomId() {
 }
 export {
   WebContainer,
-  WelfordContainer,
-  createWelfordServiceWorkerScript,
+  OpenContainer,
+  createOpenContainersServiceWorkerScript,
   flattenWebContainerTree,
-  parseWelfordPreviewUrl
+  parseOpenContainersPreviewUrl
 };

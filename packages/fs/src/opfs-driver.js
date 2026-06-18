@@ -11,7 +11,7 @@ export class OpfsPersistenceDriver {
   static async open(storage = globalThis.navigator?.storage) {
     if (!storage?.getDirectory) {
       throw Object.assign(new Error("Origin Private File System is unavailable"), {
-        code: "ERR_WELFORD_OPFS_UNAVAILABLE"
+        code: "ERR_OPENCONTAINERS_OPFS_UNAVAILABLE"
       });
     }
     return new OpfsPersistenceDriver(await storage.getDirectory());

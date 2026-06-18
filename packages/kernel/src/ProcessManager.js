@@ -52,7 +52,7 @@ export class ProcessManager {
       stderr: new OutputStream(),
       projectId: options.projectId ?? "default"
     };
-    descriptor.env.WELFORD_PROJECT_ID ??= descriptor.projectId;
+    descriptor.env.OPENCONTAINERS_PROJECT_ID ??= descriptor.projectId;
     return descriptor;
   }
 
@@ -61,11 +61,11 @@ export class ProcessManager {
     try {
       const resolved = this.resolveCommand(command, process.descriptor.cwd);
       let status;
-      if (resolved.type === "node" && this.processWorkerBackend && !process.descriptor.env.WELFORD_DISABLE_PROCESS_WORKERS) {
+      if (resolved.type === "node" && this.processWorkerBackend && !process.descriptor.env.OPENCONTAINERS_DISABLE_PROCESS_WORKERS) {
         status = await this.processWorkerBackend.run(process, args);
       } else if (resolved.type === "node") {
         status = await new NodeRuntime({ kernel: this.kernel, descriptor: process.descriptor }).execute(args);
-      } else if (resolved.type === "node-bin" && this.processWorkerBackend && !process.descriptor.env.WELFORD_DISABLE_PROCESS_WORKERS) {
+      } else if (resolved.type === "node-bin" && this.processWorkerBackend && !process.descriptor.env.OPENCONTAINERS_DISABLE_PROCESS_WORKERS) {
         status = await this.processWorkerBackend.run(process, [resolved.target, ...args]);
       } else if (resolved.type === "node-bin") {
         status = await new NodeRuntime({ kernel: this.kernel, descriptor: process.descriptor }).execute([resolved.target, ...args]);
@@ -130,7 +130,7 @@ export class ProcessManager {
       const result = resolved.run(args, process.descriptor);
       if (result && typeof result.then === "function") {
         throw Object.assign(new Error(`Command ${command} cannot run synchronously`), {
-          code: "ERR_WELFORD_SYNC_COMMAND_UNSUPPORTED"
+          code: "ERR_OPENCONTAINERS_SYNC_COMMAND_UNSUPPORTED"
         });
       }
       return result ?? 0;

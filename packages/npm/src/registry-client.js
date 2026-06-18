@@ -19,7 +19,7 @@ export class RegistryClient {
       const tarBytes = await packageTarBytes(compressed, metadata, { packageName, version, tarball });
       return extractTarFiles(tarBytes);
     } catch (error) {
-      if (error?.code !== "ERR_WELFORD_NPM_INTEGRITY") throw error;
+      if (error?.code !== "ERR_OPENCONTAINERS_NPM_INTEGRITY") throw error;
       const retryBytes = await fetchPackageBytes(tarball, packageName, version, { cache: "reload" });
       const tarBytes = await packageTarBytes(retryBytes, metadata, { packageName, version, tarball, allowIntegrityMismatchArchive: true });
       return extractTarFiles(tarBytes);
@@ -77,10 +77,10 @@ async function packageTarBytes(bytes, metadata, details) {
     try {
       await verifyIntegrity(bytes, metadata.dist.integrity);
     } catch (error) {
-      if (error?.code === "ERR_WELFORD_NPM_INTEGRITY" && packageArchiveMatches(bytes, details)) {
+      if (error?.code === "ERR_OPENCONTAINERS_NPM_INTEGRITY" && packageArchiveMatches(bytes, details)) {
         return bytes;
       }
-      if (error?.code === "ERR_WELFORD_NPM_INTEGRITY" && details.allowIntegrityMismatchArchive) {
+      if (error?.code === "ERR_OPENCONTAINERS_NPM_INTEGRITY" && details.allowIntegrityMismatchArchive) {
         const tarBytes = await maybeDecompressGzip(bytes);
         if (packageArchiveMatches(tarBytes, details)) return tarBytes;
       }
@@ -110,7 +110,7 @@ export async function verifyIntegrity(bytes, integrity) {
   }
 
   throw Object.assign(new Error("npm tarball integrity check failed"), {
-    code: "ERR_WELFORD_NPM_INTEGRITY",
+    code: "ERR_OPENCONTAINERS_NPM_INTEGRITY",
     expected: checks.map(check => `${check.algorithm}-${check.expected}`).join(" "),
     actual: attempts.map(attempt => `${attempt.algorithm}-${attempt.actual}`).join(" ")
   });
@@ -126,7 +126,7 @@ function enrichIntegrityError(error, bytes, details) {
     error.expected ? `expected: ${error.expected}` : "",
     error.actual ? `actual: ${error.actual}` : ""
   ].filter(Boolean).join("\n")), {
-    code: "ERR_WELFORD_NPM_INTEGRITY",
+    code: "ERR_OPENCONTAINERS_NPM_INTEGRITY",
     packageName: details.packageName,
     version: details.version,
     tarball: details.tarball,
@@ -171,7 +171,7 @@ export async function decompressGzip(bytes) {
     return new Uint8Array(gunzipSync(bytes));
   }
   throw Object.assign(new Error("gzip decompression is unavailable in this browser"), {
-    code: "ERR_WELFORD_GZIP_UNAVAILABLE"
+    code: "ERR_OPENCONTAINERS_GZIP_UNAVAILABLE"
   });
 }
 

@@ -16,7 +16,7 @@ export function createNetBuiltin({ kernel, process }) {
     listen(...args) {
       const options = normalizeListenArgs(args);
       const assignedPort = kernel.listenNet({
-        projectId: process.env.WELFORD_PROJECT_ID ?? "default",
+        projectId: process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
         pid: process.pid,
         port: options.port,
         host: options.host,
@@ -60,12 +60,12 @@ export function createNetBuiltin({ kernel, process }) {
   const connect = (...args) => {
     const options = normalizeConnectArgs(args);
     const socket = kernel.connectNet({
-      projectId: process.env.WELFORD_PROJECT_ID ?? "default",
+      projectId: process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
       port: options.port,
       host: options.host
     });
-    process.__welfordAddRef?.();
-    socket.once("close", () => process.__welfordUnref?.());
+    process.__opencontainersAddRef?.();
+    socket.once("close", () => process.__opencontainersUnref?.());
     options.callback && socket.once("connect", options.callback);
     return socket;
   };

@@ -12,15 +12,15 @@ test("process.versions exposes Node-compatible runtime dependency versions", asy
       console.log(process.versions.v8);
       console.log(process.versions.modules);
       console.log(process.versions.napi);
-      console.log(process.versions.welford);
+      console.log(process.versions.opencontainers);
       console.log(require('node:process').versions.v8);
     `
   ], { cwd: "/workspace" });
 
   assert.equal(result.status, 0, result.stderr.toString());
   assert.deepEqual(result.stdout.toString().trim().split("\n"), [
-    "v26.0.0-welford",
-    "26.0.0-welford",
+    "v26.0.0-opencontainers",
+    "26.0.0-opencontainers",
     "14.3.127.18-node.10",
     "144",
     "10",
@@ -447,5 +447,5 @@ test("node:tls can be required by packages and rejects client sockets clearly", 
   ], { cwd: "/workspace" });
 
   assert.equal(result.status, 0, result.stderr.toString());
-  assert.equal(result.stdout.toString(), "function\nERR_WELFORD_TLS_UNSUPPORTED\n");
+  assert.equal(result.stdout.toString(), "function\nERR_OPENCONTAINERS_TLS_UNSUPPORTED\n");
 });

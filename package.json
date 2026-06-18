@@ -1,10 +1,25 @@
 {
-  "name": "welford-containers",
-  "version": "0.1.0",
-  "private": true,
+  "name": "opencontainers",
+  "version": "0.1.1",
   "type": "module",
-  "description": "Clean-room browser-native Node-like runtime foundation for Welford Containers.",
+  "description": "Clean-room browser-native Node-like runtime foundation for OpenContainers.",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/Welfordian/OpenContainers.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Welfordian/OpenContainers/issues"
+  },
+  "homepage": "https://github.com/Welfordian/OpenContainers#readme",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "README.md",
+    "packages/embed/dist/webcontainer-compatible.js"
+  ],
   "exports": {
+    ".": "./packages/embed/dist/webcontainer-compatible.js",
     "./webcontainer": "./packages/embed/dist/webcontainer-compatible.js",
     "./packages/embed/dist/webcontainer-compatible.js": "./packages/embed/dist/webcontainer-compatible.js"
   },

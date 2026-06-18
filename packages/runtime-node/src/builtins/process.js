@@ -1,14 +1,14 @@
 import { EventEmitter } from "./events.js";
 
-export const WELFORD_NODE_VERSION = "26.0.0-welford";
-export const WELFORD_PROCESS_VERSION = `v${WELFORD_NODE_VERSION}`;
-export const WELFORD_V8_VERSION = "14.3.127.18-node.10";
-export const WELFORD_VERSIONS = {
-  node: WELFORD_NODE_VERSION,
-  v8: WELFORD_V8_VERSION,
+export const OPENCONTAINERS_NODE_VERSION = "26.0.0-opencontainers";
+export const OPENCONTAINERS_PROCESS_VERSION = `v${OPENCONTAINERS_NODE_VERSION}`;
+export const OPENCONTAINERS_V8_VERSION = "14.3.127.18-node.10";
+export const OPENCONTAINERS_VERSIONS = {
+  node: OPENCONTAINERS_NODE_VERSION,
+  v8: OPENCONTAINERS_V8_VERSION,
   modules: "144",
   napi: "10",
-  welford: "0.1.0"
+  opencontainers: "0.1.0"
 };
 
 export function createProcessBuiltin({ descriptor, kernel }) {
@@ -18,10 +18,10 @@ export function createProcessBuiltin({ descriptor, kernel }) {
   proc.argv = [...descriptor.argv];
   proc.execPath = "/bin/node";
   proc.env = descriptor.env;
-  proc.platform = "welford";
+  proc.platform = "opencontainers";
   proc.arch = "wasm";
-  proc.version = WELFORD_PROCESS_VERSION;
-  proc.versions = { ...WELFORD_VERSIONS };
+  proc.version = OPENCONTAINERS_PROCESS_VERSION;
+  proc.versions = { ...OPENCONTAINERS_VERSIONS };
   Object.defineProperty(proc, "exitCode", {
     get: () => descriptor.exitCode,
     set: (code) => {
@@ -38,7 +38,7 @@ export function createProcessBuiltin({ descriptor, kernel }) {
   };
   proc.exit = (code = 0) => {
     throw Object.assign(new Error(`Process exited with code ${code}`), {
-      code: "WELFORD_PROCESS_EXIT",
+      code: "OPENCONTAINERS_PROCESS_EXIT",
       exitCode: Number(code) || 0
     });
   };
@@ -47,10 +47,10 @@ export function createProcessBuiltin({ descriptor, kernel }) {
   proc.emitWarning = (warning) => descriptor.stderr.write(`${warning}\n`);
   descriptor.refCount ??= 0;
   descriptor.cleanupTasks ??= new Set();
-  proc.__welfordAddRef = () => {
+  proc.__opencontainersAddRef = () => {
     descriptor.refCount++;
   };
-  proc.__welfordUnref = () => {
+  proc.__opencontainersUnref = () => {
     descriptor.refCount = Math.max(0, descriptor.refCount - 1);
     if (descriptor.refCount === 0) {
       queueMicrotask(() => {
@@ -58,10 +58,10 @@ export function createProcessBuiltin({ descriptor, kernel }) {
       });
     }
   };
-  proc.__welfordOnExit = (cleanup) => {
+  proc.__opencontainersOnExit = (cleanup) => {
     descriptor.cleanupTasks.add(cleanup);
     return () => descriptor.cleanupTasks.delete(cleanup);
   };
-  proc.__welfordIsAlive = () => descriptor.status !== "exited" && descriptor.status !== "killed";
+  proc.__opencontainersIsAlive = () => descriptor.status !== "exited" && descriptor.status !== "killed";
   return proc;
 }

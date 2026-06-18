@@ -1,4 +1,4 @@
-const EVENTS_SYMBOL = Symbol.for("welford.events");
+const EVENTS_SYMBOL = Symbol.for("opencontainers.events");
 
 export class EventEmitter {
   constructor() {

@@ -1,3 +1,3 @@
-import { installWelfordServiceWorker } from "./packages/service-worker/src/sw-runtime.js";
+import { installOpenContainersServiceWorker } from "./packages/service-worker/src/sw-runtime.js";
 
-installWelfordServiceWorker(self);
+installOpenContainersServiceWorker(self);

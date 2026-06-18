@@ -1,7 +1,7 @@
 export function transformEsmToCjs(source, { filename }) {
   const exportNames = new Map();
   let transformed = source.replace(/\bimport\.meta\.url\b/g, JSON.stringify(`file://${filename}`));
-  transformed = transformed.replace(/\bimport\s*\(([^)]+)\)/g, (_match, specifierExpression) => `__welfordDynamicImport(${specifierExpression})`);
+  transformed = transformed.replace(/\bimport\s*\(([^)]+)\)/g, (_match, specifierExpression) => `__opencontainersDynamicImport(${specifierExpression})`);
 
   transformed = transformed.replace(/^\s*import\s+["']([^"']+)["'];?\s*$/gm, (_match, specifier) => {
     return `require(${JSON.stringify(specifier)});`;
@@ -16,12 +16,12 @@ export function transformEsmToCjs(source, { filename }) {
   });
 
   transformed = transformed.replace(/^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*{([^}]+)}\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, defaultName, imports, specifier) => {
-    const temp = `__welford_import_${defaultName}`;
+    const temp = `__opencontainers_import_${defaultName}`;
     return `const ${temp} = require(${JSON.stringify(specifier)});\nconst ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp}.default ?? ${temp});\nconst { ${normalizeImportBindings(imports)} } = ${temp};`;
   });
 
   transformed = transformed.replace(/^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, defaultName, specifier) => {
-    const temp = `__welford_import_${defaultName}`;
+    const temp = `__opencontainers_import_${defaultName}`;
     return `const ${temp} = require(${JSON.stringify(specifier)});\nconst ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp}.default ?? ${temp});`;
   });
 
@@ -30,8 +30,8 @@ export function transformEsmToCjs(source, { filename }) {
       exportNames.set("default", name);
       return `${prefix}${indent}function ${name}(`;
     }
-    exportNames.set("default", "__welford_default_export");
-    return `${prefix}${indent}function __welford_default_export(`;
+    exportNames.set("default", "__opencontainers_default_export");
+    return `${prefix}${indent}function __opencontainers_default_export(`;
   });
 
   transformed = transformed.replace(/(^|[;\n])(\s*)export\s+default\s+class\s*([A-Za-z_$][\w$]*)?\s*/g, (_match, prefix, indent, name) => {
@@ -39,12 +39,12 @@ export function transformEsmToCjs(source, { filename }) {
       exportNames.set("default", name);
       return `${prefix}${indent}class ${name} `;
     }
-    exportNames.set("default", "__welford_default_export");
-    return `${prefix}${indent}class __welford_default_export `;
+    exportNames.set("default", "__opencontainers_default_export");
+    return `${prefix}${indent}class __opencontainers_default_export `;
   });
 
   transformed = transformed.replace(/(^|[;\n])(\s*)export\s+default\s+([^;\n]+);?/g, (_match, prefix, indent, expression) => {
-    return `${prefix}${indent}const __welford_default_export = ${trimTrailingSemicolon(expression)};\n${indent}exports.default = __welford_default_export;\n${indent}exports.__esModule = true;`;
+    return `${prefix}${indent}const __opencontainers_default_export = ${trimTrailingSemicolon(expression)};\n${indent}exports.default = __opencontainers_default_export;\n${indent}exports.__esModule = true;`;
   });
 
   transformed = transformed.replace(/(^|[;\n])(\s*)export\s+(const|let|var)\s+([^;]+);?/g, (_match, prefix, indent, kind, declaration) => {
@@ -64,12 +64,12 @@ export function transformEsmToCjs(source, { filename }) {
   });
 
   transformed = transformed.replace(/^\s*export\s+{([^}]*)}\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, exportsList, specifier) => {
-    const temp = `__welford_reexport_${Math.random().toString(16).slice(2)}`;
+    const temp = `__opencontainers_reexport_${Math.random().toString(16).slice(2)}`;
     return `const ${temp} = require(${JSON.stringify(specifier)});\n${normalizeExportList(exportsList).map(({ local, exported }) => `exports[${JSON.stringify(exported)}] = ${temp}[${JSON.stringify(local)}];`).join("\n")}`;
   });
 
   transformed = transformed.replace(/^\s*export\s+\*\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, specifier) => {
-    const temp = `__welford_reexport_all_${Math.random().toString(16).slice(2)}`;
+    const temp = `__opencontainers_reexport_all_${Math.random().toString(16).slice(2)}`;
     return `const ${temp} = require(${JSON.stringify(specifier)});\nfor (const key of Object.keys(${temp})) if (key !== 'default' && key !== '__esModule') exports[key] = ${temp}[key];`;
   });
 

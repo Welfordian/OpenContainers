@@ -1,20 +1,20 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-export class WelfordBuffer extends Uint8Array {
+export class OpenContainersBuffer extends Uint8Array {
   static from(value, encoding = "utf8", length) {
     if (value instanceof ArrayBuffer) {
       const offset = typeof encoding === "number" ? encoding : 0;
-      return new WelfordBuffer(value.slice(offset, length === undefined ? value.byteLength : offset + length));
+      return new OpenContainersBuffer(value.slice(offset, length === undefined ? value.byteLength : offset + length));
     }
     if (ArrayBuffer.isView(value)) {
-      return new WelfordBuffer(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+      return new OpenContainersBuffer(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
     }
-    if (Array.isArray(value)) return new WelfordBuffer(value);
+    if (Array.isArray(value)) return new OpenContainersBuffer(value);
     if (typeof value === "string") {
       const normalizedEncoding = normalizeEncoding(encoding);
       if (normalizedEncoding === "hex") {
-        const bytes = new WelfordBuffer(Math.ceil(value.length / 2));
+        const bytes = new OpenContainersBuffer(Math.ceil(value.length / 2));
         for (let index = 0; index < bytes.length; index++) {
           bytes[index] = Number.parseInt(value.slice(index * 2, index * 2 + 2), 16);
         }
@@ -22,36 +22,36 @@ export class WelfordBuffer extends Uint8Array {
       }
       if (normalizedEncoding === "base64") return base64ToBytes(value);
       if (normalizedEncoding === "latin1") {
-        const bytes = new WelfordBuffer(value.length);
+        const bytes = new OpenContainersBuffer(value.length);
         for (let index = 0; index < value.length; index++) bytes[index] = value.charCodeAt(index) & 0xff;
         return bytes;
       }
-      return new WelfordBuffer(encoder.encode(value));
+      return new OpenContainersBuffer(encoder.encode(value));
     }
-    return new WelfordBuffer(value ?? 0);
+    return new OpenContainersBuffer(value ?? 0);
   }
 
   static alloc(size, fill = 0, encoding = "utf8") {
-    const buffer = new WelfordBuffer(size);
+    const buffer = new OpenContainersBuffer(size);
     if (typeof fill === "string") buffer.#fillString(fill, encoding);
     else buffer.fill(fill);
     return buffer;
   }
 
   static allocUnsafe(size) {
-    return new WelfordBuffer(size);
+    return new OpenContainersBuffer(size);
   }
 
   static allocUnsafeSlow(size) {
-    return WelfordBuffer.allocUnsafe(size);
+    return OpenContainersBuffer.allocUnsafe(size);
   }
 
   static concat(chunks, totalLength) {
     const size = totalLength ?? chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
-    const buffer = new WelfordBuffer(size);
+    const buffer = new OpenContainersBuffer(size);
     let offset = 0;
     for (const chunk of chunks) {
-      const bytes = WelfordBuffer.from(chunk);
+      const bytes = OpenContainersBuffer.from(chunk);
       buffer.set(bytes.subarray(0, Math.max(0, size - offset)), offset);
       offset += bytes.byteLength;
       if (offset >= size) break;
@@ -60,7 +60,7 @@ export class WelfordBuffer extends Uint8Array {
   }
 
   static byteLength(value, encoding) {
-    return WelfordBuffer.from(value, encoding).byteLength;
+    return OpenContainersBuffer.from(value, encoding).byteLength;
   }
 
   static isBuffer(value) {
@@ -86,7 +86,7 @@ export class WelfordBuffer extends Uint8Array {
       length = undefined;
     }
 
-    const bytes = WelfordBuffer.from(String(string), encoding);
+    const bytes = OpenContainersBuffer.from(String(string), encoding);
     const writable = Math.min(length ?? bytes.length, bytes.length, this.length - offset);
     this.set(bytes.subarray(0, Math.max(0, writable)), offset);
     return Math.max(0, writable);
@@ -100,13 +100,13 @@ export class WelfordBuffer extends Uint8Array {
   }
 
   equals(other) {
-    const bytes = WelfordBuffer.from(other);
+    const bytes = OpenContainersBuffer.from(other);
     if (bytes.length !== this.length) return false;
     return this.every((byte, index) => byte === bytes[index]);
   }
 
   compare(other) {
-    const bytes = WelfordBuffer.from(other);
+    const bytes = OpenContainersBuffer.from(other);
     const length = Math.min(this.length, bytes.length);
     for (let index = 0; index < length; index++) {
       if (this[index] !== bytes[index]) return this[index] < bytes[index] ? -1 : 1;
@@ -214,7 +214,7 @@ export class WelfordBuffer extends Uint8Array {
   }
 
   #fillString(value, encoding) {
-    const bytes = WelfordBuffer.from(value, encoding);
+    const bytes = OpenContainersBuffer.from(value, encoding);
     if (!bytes.length) return;
     for (let offset = 0; offset < this.length; offset += bytes.length) {
       this.set(bytes.subarray(0, Math.min(bytes.length, this.length - offset)), offset);
@@ -222,14 +222,14 @@ export class WelfordBuffer extends Uint8Array {
   }
 }
 
-WelfordBuffer.poolSize = 8192;
+OpenContainersBuffer.poolSize = 8192;
 
-export const RuntimeBuffer = globalThis.Buffer ?? WelfordBuffer;
+export const RuntimeBuffer = globalThis.Buffer ?? OpenContainersBuffer;
 if (typeof globalThis.Buffer === "undefined") globalThis.Buffer = RuntimeBuffer;
 
 export default {
   Buffer: RuntimeBuffer,
-  WelfordBuffer
+  OpenContainersBuffer
 };
 
 function bytesToBase64(bytes) {
@@ -238,7 +238,7 @@ function bytesToBase64(bytes) {
     binary += String.fromCharCode(...bytes.slice(index, index + 0x8000));
   }
   if (typeof btoa === "function") return btoa(binary);
-  if (globalThis.Buffer && globalThis.Buffer !== WelfordBuffer) {
+  if (globalThis.Buffer && globalThis.Buffer !== OpenContainersBuffer) {
     return globalThis.Buffer.from(bytes).toString("base64");
   }
   throw new Error("base64 encoding is unavailable in this runtime");
@@ -248,12 +248,12 @@ function base64ToBytes(value) {
   const normalized = String(value).replace(/\s+/g, "");
   if (typeof atob === "function") {
     const binary = atob(normalized);
-    const bytes = new WelfordBuffer(binary.length);
+    const bytes = new OpenContainersBuffer(binary.length);
     for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
     return bytes;
   }
-  if (globalThis.Buffer && globalThis.Buffer !== WelfordBuffer) {
-    return new WelfordBuffer(globalThis.Buffer.from(normalized, "base64"));
+  if (globalThis.Buffer && globalThis.Buffer !== OpenContainersBuffer) {
+    return new OpenContainersBuffer(globalThis.Buffer.from(normalized, "base64"));
   }
   throw new Error("base64 decoding is unavailable in this runtime");
 }

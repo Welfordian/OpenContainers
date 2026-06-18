@@ -13,19 +13,19 @@ export class Readable extends Stream {
     super();
     this.readable = true;
     this.destroyed = false;
-    this._welfordReadableBuffer = [];
-    this._welfordReadableEnded = false;
-    this._welfordReadableEndEmitted = false;
+    this._opencontainersReadableBuffer = [];
+    this._opencontainersReadableEnded = false;
+    this._opencontainersReadableEndEmitted = false;
   }
 
   push(chunk) {
     if (chunk === null) {
-      this._welfordReadableEnded = true;
+      this._opencontainersReadableEnded = true;
       this.#flushReadable();
       return false;
     }
     if (this.listenerCount("data")) this.emit("data", chunk);
-    else this._welfordReadableBuffer.push(chunk);
+    else this._opencontainersReadableBuffer.push(chunk);
     return true;
   }
 
@@ -66,11 +66,11 @@ export class Readable extends Stream {
   }
 
   #flushReadable() {
-    while (this._welfordReadableBuffer.length && this.listenerCount("data")) {
-      this.emit("data", this._welfordReadableBuffer.shift());
+    while (this._opencontainersReadableBuffer.length && this.listenerCount("data")) {
+      this.emit("data", this._opencontainersReadableBuffer.shift());
     }
-    if (this._welfordReadableEnded && !this._welfordReadableEndEmitted && this._welfordReadableBuffer.length === 0) {
-      this._welfordReadableEndEmitted = true;
+    if (this._opencontainersReadableEnded && !this._opencontainersReadableEndEmitted && this._opencontainersReadableBuffer.length === 0) {
+      this._opencontainersReadableEndEmitted = true;
       this.emit("end");
       this.emit("close");
     }
@@ -143,7 +143,7 @@ export function Transform(options = {}) {
   this.readable = true;
   this.writable = true;
   this.destroyed = false;
-  this._welfordTransformOptions = options;
+  this._opencontainersTransformOptions = options;
 }
 
 Transform.prototype = Object.create(Stream.prototype);

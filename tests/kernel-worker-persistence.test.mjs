@@ -68,14 +68,14 @@ test("KernelWorkerHost clears node_modules from memory and OPFS", async () => {
 
   await host.handleMessage({ id: "init", type: "initProject", payload: { projectId: "demo" } });
   await host.writeFile("/workspace/node_modules/pkg/index.js", "module.exports = true;");
-  await host.writeFile("/workspace/package-lock.welford.json", "{}");
+  await host.writeFile("/workspace/package-lock.opencontainers.json", "{}");
 
   await host.handleMessage({ id: "clear", type: "clearNodeModules" });
   const reply = messages.find((message) => message.type === "reply" && message.requestId === "clear").payload;
   assert.equal(reply.files.some((file) => file.path.includes("node_modules")), false);
   assert.deepEqual(await driver.list("/workspace/node_modules"), []);
 
-  await host.handleMessage({ id: "read-lock", type: "readFile", payload: { path: "/workspace/package-lock.welford.json" } });
+  await host.handleMessage({ id: "read-lock", type: "readFile", payload: { path: "/workspace/package-lock.opencontainers.json" } });
   const readReply = messages.find((message) => message.type === "reply" && message.requestId === "read-lock").payload;
   assert.equal(readReply.ok, false);
 });

@@ -26,7 +26,7 @@ test("process-worker backend keeps parents alive for virtual child_process outpu
     `
       const { spawn } = require('child_process');
       const child = spawn('node', ['-e', "console.log('child via worker backend')"], {
-        env: { WELFORD_DISABLE_PROCESS_WORKERS: '1' }
+        env: { OPENCONTAINERS_DISABLE_PROCESS_WORKERS: '1' }
       });
       child.stdout.on('data', (chunk) => console.log(String(chunk).trim()));
     `

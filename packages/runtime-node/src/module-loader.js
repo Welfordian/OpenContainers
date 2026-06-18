@@ -77,10 +77,10 @@ export class ModuleLoader {
       "clearInterval",
       "setImmediate",
       "clearImmediate",
-      "__welfordGlobals",
+      "__opencontainersGlobals",
       "fetch",
-      "__welfordDynamicImport",
-      `with (__welfordGlobals) {\n${executableSource}\n}\n//# sourceURL=welford://${resolved}`
+      "__opencontainersDynamicImport",
+      `with (__opencontainersGlobals) {\n${executableSource}\n}\n//# sourceURL=opencontainers://${resolved}`
     );
     wrapped(
       module.exports,
@@ -138,10 +138,10 @@ export class ModuleLoader {
       "clearInterval",
       "setImmediate",
       "clearImmediate",
-      "__welfordGlobals",
+      "__opencontainersGlobals",
       "fetch",
-      "__welfordDynamicImport",
-      `return (async () => {\nwith (__welfordGlobals) {\n${executableSource}\n}\n})();\n//# sourceURL=welford://${resolved}`
+      "__opencontainersDynamicImport",
+      `return (async () => {\nwith (__opencontainersGlobals) {\n${executableSource}\n}\n})();\n//# sourceURL=opencontainers://${resolved}`
     );
     await wrapped(
       module.exports,
@@ -268,9 +268,9 @@ export class ModuleLoader {
     }
     if (name === "os") {
       return {
-        platform: () => "welford",
+        platform: () => "opencontainers",
         arch: () => "wasm",
-        homedir: () => "/home/welford",
+        homedir: () => "/home/opencontainers",
         tmpdir: () => "/tmp",
         cpus: () => [{ model: "virtual", speed: 0 }],
         EOL: "\n"
@@ -295,9 +295,9 @@ export class ModuleLoader {
   }
 
   dynamicImport(specifier, parentFilename) {
-    this.process.__welfordAddRef?.();
+    this.process.__opencontainersAddRef?.();
     const promise = Promise.resolve().then(() => this.import(specifier, parentFilename));
-    promise.finally(() => queueMicrotask(() => this.process.__welfordUnref?.()));
+    promise.finally(() => queueMicrotask(() => this.process.__opencontainersUnref?.()));
     return promise;
   }
 
@@ -361,10 +361,10 @@ export class ModuleLoader {
       "clearInterval",
       "setImmediate",
       "clearImmediate",
-      "__welfordGlobals",
+      "__opencontainersGlobals",
       "fetch",
-      "__welfordDynamicImport",
-      `return (async () => {\nwith (__welfordGlobals) {\n${executableSource}\n}\n})();\n//# sourceURL=welford://${filename}`
+      "__opencontainersDynamicImport",
+      `return (async () => {\nwith (__opencontainersGlobals) {\n${executableSource}\n}\n})();\n//# sourceURL=opencontainers://${filename}`
     );
     await wrapped(
       module.exports,
@@ -393,15 +393,15 @@ export class ModuleLoader {
       globalThis.crypto?.getRandomValues?.(bytes);
       const buffer = RuntimeBuffer.from(bytes);
       if (typeof callback === "function") {
-        this.process.__welfordAddRef?.();
+        this.process.__opencontainersAddRef?.();
         queueMicrotask(() => {
           try {
-            if (this.process.__welfordIsAlive?.() !== false) callback(null, buffer);
+            if (this.process.__opencontainersIsAlive?.() !== false) callback(null, buffer);
           } catch (error) {
             this.process.stderr?.write?.(`${error?.stack ?? error?.message ?? error}\n`);
             this.process.exitCode = 1;
           } finally {
-            this.process.__welfordUnref?.();
+            this.process.__opencontainersUnref?.();
           }
         });
         return undefined;
@@ -409,7 +409,7 @@ export class ModuleLoader {
       return buffer;
     };
     return {
-      randomUUID: () => globalThis.crypto?.randomUUID?.() ?? `welford-${Math.random().toString(16).slice(2)}`,
+      randomUUID: () => globalThis.crypto?.randomUUID?.() ?? `opencontainers-${Math.random().toString(16).slice(2)}`,
       randomBytes,
       createHash: (algorithm) => {
         const chunks = [];
@@ -434,7 +434,7 @@ export class ModuleLoader {
       gzipSync: (input) => RuntimeBuffer.from(input),
       gunzipSync: (input) => RuntimeBuffer.from(input),
       createGzip: () => {
-        throw Object.assign(new Error("zlib streams are not implemented yet"), { code: "ERR_WELFORD_ZLIB_STREAM_UNSUPPORTED" });
+        throw Object.assign(new Error("zlib streams are not implemented yet"), { code: "ERR_OPENCONTAINERS_ZLIB_STREAM_UNSUPPORTED" });
       }
     };
   }
@@ -774,8 +774,8 @@ class TLSSocket {}
 const tlsBuiltin = {
   TLSSocket,
   connect() {
-    throw Object.assign(new Error("node:tls client sockets are not supported in Welford Containers V1"), {
-      code: "ERR_WELFORD_TLS_UNSUPPORTED"
+    throw Object.assign(new Error("node:tls client sockets are not supported in OpenContainers V1"), {
+      code: "ERR_OPENCONTAINERS_TLS_UNSUPPORTED"
     });
   },
   createSecureContext: () => ({}),
@@ -783,7 +783,7 @@ const tlsBuiltin = {
 };
 
 function createRuntimeFetch({ kernel, process }) {
-  return async function welfordFetch(input, init = {}) {
+  return async function openContainersFetch(input, init = {}) {
     const request = normalizeFetchRequest(input, init);
     const url = new URL(request.url);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
@@ -794,7 +794,7 @@ function createRuntimeFetch({ kernel, process }) {
     if (isVirtualFetchHost(url.hostname)) {
       const response = await kernel.dispatchHttpRequest({
         id: globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2),
-        projectId: process.env.WELFORD_PROJECT_ID ?? "default",
+        projectId: process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
         port: Number(url.port) || 80,
         method: request.method,
         url: `${url.pathname}${url.search}`,
@@ -806,27 +806,27 @@ function createRuntimeFetch({ kernel, process }) {
 
     if (isHostPageOrigin(url)) {
       throw Object.assign(new Error(`Host application request blocked: ${url.href}`), {
-        code: "ERR_WELFORD_HOST_ORIGIN_BLOCKED"
+        code: "ERR_OPENCONTAINERS_HOST_ORIGIN_BLOCKED"
       });
     }
 
     if (kernel.allowExternalNetwork !== true) {
       throw Object.assign(new Error(`External network request blocked: ${url.href}`), {
-        code: "ERR_WELFORD_EXTERNAL_NETWORK_BLOCKED"
+        code: "ERR_OPENCONTAINERS_EXTERNAL_NETWORK_BLOCKED"
       });
     }
 
     if (typeof globalThis.fetch !== "function") {
       throw Object.assign(new Error("External fetch is unavailable in this browser runtime"), {
-        code: "ERR_WELFORD_EXTERNAL_FETCH_UNAVAILABLE"
+        code: "ERR_OPENCONTAINERS_EXTERNAL_FETCH_UNAVAILABLE"
       });
     }
 
     try {
       return await globalThis.fetch(input, init);
     } catch (error) {
-      throw Object.assign(new Error(`External fetch failed for ${url.href}: ${error?.message ?? error}. Browser CORS and network restrictions still apply in Welford Containers.`), {
-        code: "ERR_WELFORD_EXTERNAL_FETCH_FAILED",
+      throw Object.assign(new Error(`External fetch failed for ${url.href}: ${error?.message ?? error}. Browser CORS and network restrictions still apply in OpenContainers.`), {
+        code: "ERR_OPENCONTAINERS_EXTERNAL_FETCH_FAILED",
         cause: error
       });
     }

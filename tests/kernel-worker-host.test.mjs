@@ -58,7 +58,7 @@ test("KernelWorkerHost detached dev command leaves virtual HTTP server reachable
 
   const reply = messages.at(-1).payload.response;
   assert.equal(reply.status, 200);
-  assert.match(reply.body, /Hello from Welford Containers/);
+  assert.match(reply.body, /Hello from OpenContainers/);
 });
 
 test("KernelWorkerHost detects non-default preview ports", async () => {

@@ -2,7 +2,7 @@ import { dispatchPreviewRequest, parsePreviewUrl } from "./http-dispatch.js";
 import { injectPreviewClient } from "./preview-rewriter.js";
 import { previewClientBrowserScript } from "../../preview-client/src/index.js";
 
-export class WelfordServiceWorkerRuntime {
+export class OpenContainersServiceWorkerRuntime {
   constructor({ scope = globalThis, timeoutMs = 30_000 } = {}) {
     this.scope = scope;
     this.timeoutMs = timeoutMs;
@@ -26,7 +26,7 @@ export class WelfordServiceWorkerRuntime {
 
   async fetch(request) {
     const url = new URL(request.url);
-    if (url.pathname === "/__welford/preview-client.js") {
+    if (url.pathname === "/__opencontainers/preview-client.js") {
       return new Response(previewClientBrowserScript(), {
         headers: { "content-type": "text/javascript; charset=utf-8" }
       });
@@ -70,7 +70,7 @@ export class WelfordServiceWorkerRuntime {
 
   requestKernel(type, payload) {
     if (!this.kernelPort) {
-      return Promise.reject(new Error("Welford kernel worker is not connected"));
+      return Promise.reject(new Error("OpenContainers kernel worker is not connected"));
     }
     const requestId = crypto.randomUUID?.() ?? Math.random().toString(16).slice(2);
     return new Promise((resolve, reject) => {
@@ -89,12 +89,12 @@ export class WelfordServiceWorkerRuntime {
   }
 }
 
-export function installWelfordServiceWorker(scope = self) {
-  const runtime = new WelfordServiceWorkerRuntime({ scope });
+export function installOpenContainersServiceWorker(scope = self) {
+  const runtime = new OpenContainersServiceWorkerRuntime({ scope });
   scope.addEventListener("install", (event) => event.waitUntil(scope.skipWaiting()));
   scope.addEventListener("activate", (event) => event.waitUntil(scope.clients.claim()));
   scope.addEventListener("message", (event) => {
-    if (event.data?.type === "WELFORD_CONNECT_KERNEL" && event.ports?.[0]) {
+    if (event.data?.type === "OPENCONTAINERS_CONNECT_KERNEL" && event.ports?.[0]) {
       runtime.connect(event.ports[0]);
     }
   });

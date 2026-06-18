@@ -77,7 +77,7 @@ export class NpmInstaller {
         name,
         version,
         main: "index.js",
-        welfordAdapter: adapter.replaceModule,
+        opencontainersAdapter: adapter.replaceModule,
         originalPackage: {
           main: packageMetadata.main,
           exports: packageMetadata.exports
@@ -103,7 +103,7 @@ export class NpmInstaller {
   }
 
   writeLockfile(cwd) {
-    this.kernel.fs.writeFileSync(resolvePath(cwd, "package-lock.welford.json"), `${JSON.stringify({
+    this.kernel.fs.writeFileSync(resolvePath(cwd, "package-lock.opencontainers.json"), `${JSON.stringify({
       lockfileVersion: 1,
       packages: [...this.installed].sort()
     }, null, 2)}\n`);
@@ -143,7 +143,7 @@ export class NpmInstaller {
       const result = await child.completed;
       if (result.status !== 0) {
         throw Object.assign(new Error(`${name}@${version} ${scriptName} failed`), {
-          code: "ERR_WELFORD_NPM_LIFECYCLE_FAILED",
+          code: "ERR_OPENCONTAINERS_NPM_LIFECYCLE_FAILED",
           status: result.status
         });
       }

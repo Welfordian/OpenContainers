@@ -1,3 +1,3 @@
 {
-  "contains": ["installed", "vite fixture dev server", "welford-esbuild-wasm-adapter"]
+  "contains": ["installed", "vite fixture dev server", "opencontainers-esbuild-wasm-adapter"]
 }

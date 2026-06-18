@@ -20,7 +20,7 @@ export const packageAdapters = {
           return buildSync();
         }
         module.exports = {
-          version: 'welford-esbuild-wasm-adapter',
+          version: 'opencontainers-esbuild-wasm-adapter',
           transform,
           transformSync,
           build,
@@ -35,7 +35,7 @@ export const packageAdapters = {
         if (args.includes('--version')) {
           console.log(esbuild.version);
         } else {
-          console.log('welford esbuild adapter');
+          console.log('opencontainers esbuild adapter');
         }
       `
     }
@@ -59,8 +59,8 @@ export const packageAdapters = {
     files: {
       "/__adapters__/sharp/unsupported.js": `
         function sharpUnsupported() {
-          const error = new Error('sharp uses native image processing bindings and is not supported in Welford Containers V1');
-          error.code = 'ERR_WELFORD_NATIVE_MODULE_UNSUPPORTED';
+          const error = new Error('sharp uses native image processing bindings and is not supported in OpenContainers V1');
+          error.code = 'ERR_OPENCONTAINERS_NATIVE_MODULE_UNSUPPORTED';
           throw error;
         }
         module.exports = sharpUnsupported;

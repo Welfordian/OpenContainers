@@ -22,7 +22,7 @@ export function createWorkerThreadsBuiltin({ process, workerContext = null, runW
       super();
       if (typeof runWorkerSource !== "function") {
         throw Object.assign(new Error("node:worker_threads is unavailable in this runtime"), {
-          code: "ERR_WELFORD_WORKER_THREADS_UNAVAILABLE"
+          code: "ERR_OPENCONTAINERS_WORKER_THREADS_UNAVAILABLE"
         });
       }
       this.threadId = nextThreadId++;
@@ -35,16 +35,16 @@ export function createWorkerThreadsBuiltin({ process, workerContext = null, runW
       this.#options = options;
       this.#parentPort = new RuntimeMessagePort();
       this.#workerPort = new RuntimeMessagePort();
-      this.#parentPort.__welfordSetPeer(this.#workerPort);
-      this.#workerPort.__welfordSetPeer(this.#parentPort);
+      this.#parentPort.__opencontainersSetPeer(this.#workerPort);
+      this.#workerPort.__opencontainersSetPeer(this.#parentPort);
       this.#parentPort.on("message", (message) => this.emit("message", message));
       this.#parentPort.on("messageerror", (error) => {
         if (this.listenerCount("messageerror") > 0) this.emit("messageerror", error);
       });
       this.#abortController = typeof AbortController === "function" ? new AbortController() : null;
       this.#refed = true;
-      process?.__welfordAddRef?.();
-      this.#disposeExitHook = process?.__welfordOnExit?.(() => {
+      process?.__opencontainersAddRef?.();
+      this.#disposeExitHook = process?.__opencontainersOnExit?.(() => {
         this.#forceTerminate(1);
       });
       queueMicrotask(() => this.#start());
@@ -76,7 +76,7 @@ export function createWorkerThreadsBuiltin({ process, workerContext = null, runW
     ref() {
       if (!this.#refed && !this.#exited) {
         this.#refed = true;
-        process?.__welfordAddRef?.();
+        process?.__opencontainersAddRef?.();
       }
       return this;
     }
@@ -84,7 +84,7 @@ export function createWorkerThreadsBuiltin({ process, workerContext = null, runW
     unref() {
       if (this.#refed) {
         this.#refed = false;
-        process?.__welfordUnref?.();
+        process?.__opencontainersUnref?.();
       }
       return this;
     }
@@ -105,7 +105,7 @@ export function createWorkerThreadsBuiltin({ process, workerContext = null, runW
         if (!this.#terminated) this.#finish(0);
       } catch (error) {
         if (this.#terminated) return;
-        if (error?.code === "WELFORD_PROCESS_EXIT") {
+        if (error?.code === "OPENCONTAINERS_PROCESS_EXIT") {
           this.#finish(error.exitCode ?? 0);
           return;
         }
@@ -144,7 +144,7 @@ export function createWorkerThreadsBuiltin({ process, workerContext = null, runW
       this.#disposeExitHook = null;
       if (this.#refed) {
         this.#refed = false;
-        process?.__welfordUnref?.();
+        process?.__opencontainersUnref?.();
       }
       this.emit("exit", this.#exitCode);
     }
@@ -158,7 +158,7 @@ export function createWorkerThreadsBuiltin({ process, workerContext = null, runW
     parentPort: workerContext?.parentPort ?? null,
     receiveMessageOnPort,
     resourceLimits: {},
-    SHARE_ENV: Symbol.for("welford.worker_threads.SHARE_ENV"),
+    SHARE_ENV: Symbol.for("opencontainers.worker_threads.SHARE_ENV"),
     threadId: workerContext?.threadId ?? 0,
     workerData: workerContext?.workerData,
     markAsUntransferable() {},
@@ -185,12 +185,12 @@ export class MessagePort extends EventEmitter {
   postMessage(message) {
     if (this.#closed || !this.#peer || this.#peer.#closed) return;
     const cloned = cloneMessage(message);
-    this.#process?.__welfordAddRef?.();
+    this.#process?.__opencontainersAddRef?.();
     queueMicrotask(() => {
       try {
         if (this.#peer && !this.#peer.#closed) this.#peer.#dispatchMessage(cloned);
       } finally {
-        this.#process?.__welfordUnref?.();
+        this.#process?.__opencontainersUnref?.();
       }
     });
   }
@@ -213,15 +213,15 @@ export class MessagePort extends EventEmitter {
     return this;
   }
 
-  __welfordSetPeer(peer) {
+  __opencontainersSetPeer(peer) {
     this.#peer = peer;
   }
 
-  __welfordQueueMessage(message) {
+  __opencontainersQueueMessage(message) {
     this.#queue.push(cloneMessage(message));
   }
 
-  __welfordReceiveMessage() {
+  __opencontainersReceiveMessage() {
     return this.#queue.length ? { message: this.#queue.shift() } : undefined;
   }
 
@@ -237,13 +237,13 @@ export class MessageChannel {
   constructor({ process } = {}) {
     this.port1 = new MessagePort({ process });
     this.port2 = new MessagePort({ process });
-    this.port1.__welfordSetPeer(this.port2);
-    this.port2.__welfordSetPeer(this.port1);
+    this.port1.__opencontainersSetPeer(this.port2);
+    this.port2.__opencontainersSetPeer(this.port1);
   }
 }
 
 function receiveMessageOnPort(port) {
-  return port?.__welfordReceiveMessage?.();
+  return port?.__opencontainersReceiveMessage?.();
 }
 
 function cloneMessage(value) {

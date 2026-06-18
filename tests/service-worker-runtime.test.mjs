@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { WelfordServiceWorkerRuntime } from "../packages/service-worker/src/sw-runtime.js";
+import { OpenContainersServiceWorkerRuntime } from "../packages/service-worker/src/sw-runtime.js";
 
 test("Service Worker runtime dispatches preview requests through the kernel port and injects the preview client", async () => {
-  const runtime = new WelfordServiceWorkerRuntime({ timeoutMs: 1000 });
+  const runtime = new OpenContainersServiceWorkerRuntime({ timeoutMs: 1000 });
   const port = {
     start() {},
     postMessage(message) {
@@ -29,12 +29,12 @@ test("Service Worker runtime dispatches preview requests through the kernel port
   };
   runtime.connect(port);
 
-  const response = await runtime.fetch(new Request("https://run.welford.local/p/demo/"));
+  const response = await runtime.fetch(new Request("https://run.opencontainers.local/p/demo/"));
   const html = await response.text();
   assert.equal(response.status, 200);
-  assert.match(html, /__WELFORD_PREVIEW__/);
+  assert.match(html, /__OPENCONTAINERS_PREVIEW__/);
   assert.match(html, /installPreviewClient/);
   assert.match(html, /"defaultPort":8000/);
-  assert.match(html, /"parentOrigin":"https:\/\/run\.welford\.local"/);
-  assert.doesNotMatch(html, /src="\/__welford\/preview-client\.js"/);
+  assert.match(html, /"parentOrigin":"https:\/\/run\.opencontainers\.local"/);
+  assert.doesNotMatch(html, /src="\/__opencontainers\/preview-client\.js"/);
 });

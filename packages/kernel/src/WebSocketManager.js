@@ -30,7 +30,7 @@ export class VirtualWebSocketEndpoint extends EventEmitter {
 
   send(data) {
     if (this.readyState !== VirtualWebSocketEndpoint.OPEN) {
-      throw Object.assign(new Error("WebSocket is not open"), { code: "ERR_WELFORD_WS_NOT_OPEN" });
+      throw Object.assign(new Error("WebSocket is not open"), { code: "ERR_OPENCONTAINERS_WS_NOT_OPEN" });
     }
     queueMicrotask(() => {
       if (this.peer?.readyState === VirtualWebSocketEndpoint.OPEN) {
@@ -92,7 +92,7 @@ export class WebSocketManager {
     const handler = this.handlers.get(this.#key(projectId, port));
     if (!handler) {
       throw Object.assign(new Error(`No virtual WebSocket server is listening on ${projectId}:${port}`), {
-        code: "ERR_WELFORD_WS_SERVER_MISSING"
+        code: "ERR_OPENCONTAINERS_WS_SERVER_MISSING"
       });
     }
 

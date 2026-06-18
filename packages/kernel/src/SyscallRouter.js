@@ -34,7 +34,7 @@ export class SyscallRouter {
         return this.kernel.dispatchHttpRequest(request.request);
       default:
         throw Object.assign(new Error(`Unsupported syscall: ${request.op}`), {
-          code: "ERR_WELFORD_UNKNOWN_SYSCALL"
+          code: "ERR_OPENCONTAINERS_UNKNOWN_SYSCALL"
         });
     }
   }

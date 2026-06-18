@@ -28,19 +28,19 @@ export function createChildProcessBuiltin({ kernel, process }) {
   const spawn = (command, args = [], options = {}) => {
     if (kernel.allowChildProcesses === false) {
       throw Object.assign(new Error("Child process spawning is disabled for this project"), {
-        code: "ERR_WELFORD_CHILD_PROCESS_PERMISSION"
+        code: "ERR_OPENCONTAINERS_CHILD_PROCESS_PERMISSION"
       });
     }
-    process.__welfordAddRef?.();
+    process.__opencontainersAddRef?.();
     const virtualProcess = kernel.spawn(command, args, {
       cwd: options.cwd ?? process.cwd(),
       env: { ...process.env, ...(options.env ?? {}) },
-      projectId: process.env.WELFORD_PROJECT_ID ?? "default",
+      projectId: process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
       parentPid: process.pid
     });
     const child = childHandleFromVirtualProcess(virtualProcess);
-    child.on("close", () => process.__welfordUnref?.());
-    child.on("error", () => process.__welfordUnref?.());
+    child.on("close", () => process.__opencontainersUnref?.());
+    child.on("error", () => process.__opencontainersUnref?.());
     return child;
   };
 
@@ -61,7 +61,7 @@ export function createChildProcessBuiltin({ kernel, process }) {
   const spawnSync = (command, args = [], options = {}) => kernel.spawnSync(command, args, {
     cwd: options.cwd ?? process.cwd(),
     env: { ...process.env, ...(options.env ?? {}) },
-    projectId: process.env.WELFORD_PROJECT_ID ?? "default",
+    projectId: process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
     parentPid: process.pid
   });
 

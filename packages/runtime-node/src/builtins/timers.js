@@ -2,25 +2,25 @@ let nextTimerId = 1;
 
 export function createTimerApi({ process } = {}) {
   const setTimeoutCompat = (callback, delay = 0, ...args) => {
-    const handle = new WelfordTimerHandle({ kind: "timeout", process, callback, args, delay });
+    const handle = new OpenContainersTimerHandle({ kind: "timeout", process, callback, args, delay });
     handle.start();
     return handle;
   };
 
   const setIntervalCompat = (callback, delay = 0, ...args) => {
-    const handle = new WelfordTimerHandle({ kind: "interval", process, callback, args, delay, repeat: true });
+    const handle = new OpenContainersTimerHandle({ kind: "interval", process, callback, args, delay, repeat: true });
     handle.start();
     return handle;
   };
 
   const setImmediateCompat = (callback, ...args) => {
-    const handle = new WelfordTimerHandle({ kind: "immediate", process, callback, args, delay: 0 });
+    const handle = new OpenContainersTimerHandle({ kind: "immediate", process, callback, args, delay: 0 });
     handle.start();
     return handle;
   };
 
   const clearTimer = (handle) => {
-    if (handle instanceof WelfordTimerHandle) {
+    if (handle instanceof OpenContainersTimerHandle) {
       handle.close();
       return;
     }
@@ -56,7 +56,7 @@ export function createTimerApi({ process } = {}) {
   };
 }
 
-class WelfordTimerHandle {
+class OpenContainersTimerHandle {
   constructor({ kind, process, callback, args = [], delay = 0, repeat = false }) {
     this.kind = kind;
     this.process = process;
@@ -68,8 +68,8 @@ class WelfordTimerHandle {
     this.active = true;
     this.refed = true;
     this.refreshedDuringCallback = false;
-    this.process?.__welfordAddRef?.();
-    this.disposeExitHook = this.process?.__welfordOnExit?.(() => this.close({ releaseRef: false }));
+    this.process?.__opencontainersAddRef?.();
+    this.disposeExitHook = this.process?.__opencontainersOnExit?.(() => this.close({ releaseRef: false }));
   }
 
   start() {
@@ -85,7 +85,7 @@ class WelfordTimerHandle {
 
   fire() {
     if (!this.active) return;
-    if (this.process?.__welfordIsAlive?.() === false) {
+    if (this.process?.__opencontainersIsAlive?.() === false) {
       this.close();
       return;
     }
@@ -109,14 +109,14 @@ class WelfordTimerHandle {
     this.disposeExitHook = null;
     if (releaseRef && this.refed) {
       this.refed = false;
-      this.process?.__welfordUnref?.();
+      this.process?.__opencontainersUnref?.();
     }
   }
 
   ref() {
     if (this.active && !this.refed) {
       this.refed = true;
-      this.process?.__welfordAddRef?.();
+      this.process?.__opencontainersAddRef?.();
     }
     return this;
   }
@@ -124,7 +124,7 @@ class WelfordTimerHandle {
   unref() {
     if (this.active && this.refed) {
       this.refed = false;
-      this.process?.__welfordUnref?.();
+      this.process?.__opencontainersUnref?.();
     }
     return this;
   }

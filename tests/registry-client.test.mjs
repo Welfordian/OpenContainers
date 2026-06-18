@@ -3,7 +3,7 @@ import { Buffer as NodeBuffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
-import { WelfordBuffer } from "../packages/runtime-node/src/builtins/buffer.js";
+import { OpenContainersBuffer } from "../packages/runtime-node/src/builtins/buffer.js";
 import { RegistryClient, verifyIntegrity } from "../packages/npm/src/registry-client.js";
 
 test("RegistryClient downloads, verifies, decompresses, and extracts npm tarballs", async () => {
@@ -144,7 +144,7 @@ test("RegistryClient reports package details when integrity mismatch is not a va
         dist: { tarball: "https://registry.example/demo.tgz", integrity: "sha512-invalid" }
       }),
       error => {
-        assert.equal(error.code, "ERR_WELFORD_NPM_INTEGRITY");
+        assert.equal(error.code, "ERR_OPENCONTAINERS_NPM_INTEGRITY");
         assert.match(error.message, /demo@1\.0\.0/);
         assert.match(error.message, /registry\.example\/demo\.tgz/);
         assert.match(error.message, /signature:/);
@@ -165,28 +165,28 @@ test("verifyIntegrity accepts multi-token and base64url npm SRI strings", async 
   await verifyIntegrity(bytes, `sha512-${sha512Url}`);
 });
 
-test("verifyIntegrity does not use WelfordBuffer utf8 output for base64 digests", async () => {
+test("verifyIntegrity does not use OpenContainersBuffer utf8 output for base64 digests", async () => {
   const bufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Buffer");
   Object.defineProperty(globalThis, "Buffer", {
     configurable: true,
     writable: true,
-    value: WelfordBuffer
+    value: OpenContainersBuffer
   });
   try {
     const bytes = new Uint8Array([1, 2, 3, 4]);
     const sha512 = createHash("sha512").update(bytes).digest("base64");
     await verifyIntegrity(bytes, `sha512-${sha512}`);
-    assert.equal(WelfordBuffer.from(bytes).toString("base64"), NodeBuffer.from(bytes).toString("base64"));
+    assert.equal(OpenContainersBuffer.from(bytes).toString("base64"), NodeBuffer.from(bytes).toString("base64"));
   } finally {
     if (bufferDescriptor) Object.defineProperty(globalThis, "Buffer", bufferDescriptor);
     else delete globalThis.Buffer;
   }
 });
 
-test("WelfordBuffer exposes Node-compatible unsafe allocation and integer writes", () => {
-  const buffer = WelfordBuffer.allocUnsafe(10);
+test("OpenContainersBuffer exposes Node-compatible unsafe allocation and integer writes", () => {
+  const buffer = OpenContainersBuffer.allocUnsafe(10);
   assert.equal(buffer.length, 10);
-  assert.equal(WelfordBuffer.allocUnsafeSlow(2).length, 2);
+  assert.equal(OpenContainersBuffer.allocUnsafeSlow(2).length, 2);
 
   buffer.writeUInt8(0x81, 0);
   buffer.writeUInt16BE(0x0203, 1);
@@ -206,21 +206,21 @@ test("WelfordBuffer exposes Node-compatible unsafe allocation and integer writes
   assert.equal(buffer.readInt16LE(1), -4);
   assert.equal(buffer.readInt32LE(3), -5);
 
-  const text = WelfordBuffer.alloc(6);
+  const text = OpenContainersBuffer.alloc(6);
   assert.equal(text.write("hello world", 0, 5), 5);
   assert.equal(text.toString("utf8", 0, 5), "hello");
-  assert.equal(WelfordBuffer.from("SGVsbG8=", "base64").toString(), "Hello");
-  assert.equal(WelfordBuffer.concat([WelfordBuffer.from("he"), WelfordBuffer.from("llo")]).toString(), "hello");
-  assert.equal(WelfordBuffer.from("abc").copy(text, 1), 3);
+  assert.equal(OpenContainersBuffer.from("SGVsbG8=", "base64").toString(), "Hello");
+  assert.equal(OpenContainersBuffer.concat([OpenContainersBuffer.from("he"), OpenContainersBuffer.from("llo")]).toString(), "hello");
+  assert.equal(OpenContainersBuffer.from("abc").copy(text, 1), 3);
   assert.equal(text.toString("utf8", 1, 4), "abc");
 });
 
-test("WelfordBuffer keeps base64id on the Node-compatible ID path", () => {
-  const rand = WelfordBuffer.alloc(15);
+test("OpenContainersBuffer keeps base64id on the Node-compatible ID path", () => {
+  const rand = OpenContainersBuffer.alloc(15);
   assert.equal(typeof rand.writeInt32BE, "function");
 
   rand.writeInt32BE(1, 11);
-  WelfordBuffer.from([0xde, 0xad, 0xbe, 0xef]).copy(rand);
+  OpenContainersBuffer.from([0xde, 0xad, 0xbe, 0xef]).copy(rand);
 
   assert.match(rand.toString("base64").replace(/\//g, "_").replace(/\+/g, "-"), /^[A-Za-z0-9_-]+={0,2}$/);
   assert.equal(/^[0-9]+$/.test(rand.toString("base64")), false);

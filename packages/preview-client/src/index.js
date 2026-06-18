@@ -1,7 +1,7 @@
 export function installPreviewClient({ bridge, win = globalThis.window } = {}) {
-  if (!win || win.__WELFORD_PREVIEW_CLIENT_INSTALLED__) return;
-  win.__WELFORD_PREVIEW_CLIENT_INSTALLED__ = true;
-  const config = win.__WELFORD_PREVIEW__;
+  if (!win || win.__OPENCONTAINERS_PREVIEW_CLIENT_INSTALLED__) return;
+  win.__OPENCONTAINERS_PREVIEW_CLIENT_INSTALLED__ = true;
+  const config = win.__OPENCONTAINERS_PREVIEW__;
   if (!config) return;
 
   const activeBridge = bridge ?? createParentBridge(win, config);
@@ -15,7 +15,7 @@ export function isVirtualLocalhost(url) {
   return ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"].includes(url.hostname);
 }
 
-export function mapPreviewRequestUrl(input, config = {}, baseHref = globalThis.location?.href ?? "https://run.welford.local/") {
+export function mapPreviewRequestUrl(input, config = {}, baseHref = globalThis.location?.href ?? "https://run.opencontainers.local/") {
   const raw = typeof input === "string" || input instanceof URL ? String(input) : input?.url;
   if (!raw) return null;
 
@@ -29,14 +29,14 @@ export function mapPreviewRequestUrl(input, config = {}, baseHref = globalThis.l
   }
 
   if (url.origin === previewOrigin && url.pathname.startsWith("/p/")) return url.href;
-  if (url.origin === previewOrigin && !url.pathname.startsWith("/__welford/")) {
+  if (url.origin === previewOrigin && !url.pathname.startsWith("/__opencontainers/")) {
     return `${previewOrigin}/p/${encodeURIComponent(config.projectId)}:${config.defaultPort}${url.pathname}${url.search}`;
   }
 
   return null;
 }
 
-export function mapPreviewWebSocketRequest(input, protocols, config = {}, baseHref = globalThis.location?.href ?? "https://run.welford.local/") {
+export function mapPreviewWebSocketRequest(input, protocols, config = {}, baseHref = globalThis.location?.href ?? "https://run.opencontainers.local/") {
   let url;
   try {
     url = new URL(String(input || ""), config.baseUrl ?? baseHref);
@@ -56,7 +56,7 @@ export function mapPreviewWebSocketRequest(input, protocols, config = {}, baseHr
     };
   }
 
-  if (url.host !== previewHost || url.pathname.startsWith("/__welford/")) return null;
+  if (url.host !== previewHost || url.pathname.startsWith("/__opencontainers/")) return null;
   if (url.pathname.startsWith("/p/")) {
     const rest = url.pathname.slice(3);
     const slashIndex = rest.indexOf("/");
@@ -108,7 +108,7 @@ function patchXMLHttpRequest(win, config, bridge) {
   const NativeXMLHttpRequest = win.XMLHttpRequest;
   if (!NativeXMLHttpRequest) return;
 
-  win.XMLHttpRequest = class WelfordXMLHttpRequest extends EventTarget {
+  win.XMLHttpRequest = class OpenContainersXMLHttpRequest extends EventTarget {
     static UNSENT = 0;
     static OPENED = 1;
     static HEADERS_RECEIVED = 2;
@@ -117,7 +117,7 @@ function patchXMLHttpRequest(win, config, bridge) {
 
     constructor() {
       super();
-      this.readyState = WelfordXMLHttpRequest.UNSENT;
+      this.readyState = OpenContainersXMLHttpRequest.UNSENT;
       this.response = null;
       this.responseText = "";
       this.responseType = "";
@@ -153,7 +153,7 @@ function patchXMLHttpRequest(win, config, bridge) {
         this.#native.open(method, url, async, user, password);
         return;
       }
-      this.#setReadyState(WelfordXMLHttpRequest.OPENED);
+      this.#setReadyState(OpenContainersXMLHttpRequest.OPENED);
     }
 
     setRequestHeader(name, value) {
@@ -194,12 +194,12 @@ function patchXMLHttpRequest(win, config, bridge) {
         this.statusText = response.statusText;
         this.responseURL = this.#mappedUrl;
         this.#responseHeaders = [...response.headers.entries()];
-        this.#setReadyState(WelfordXMLHttpRequest.HEADERS_RECEIVED);
+        this.#setReadyState(OpenContainersXMLHttpRequest.HEADERS_RECEIVED);
         const arrayBuffer = await response.arrayBuffer();
         if (this.#aborted) return;
-        this.#setReadyState(WelfordXMLHttpRequest.LOADING);
+        this.#setReadyState(OpenContainersXMLHttpRequest.LOADING);
         this.#setResponse(arrayBuffer);
-        this.#setReadyState(WelfordXMLHttpRequest.DONE);
+        this.#setReadyState(OpenContainersXMLHttpRequest.DONE);
         this.#emit("load");
         this.#emit("loadend");
       }).catch((error) => {
@@ -207,7 +207,7 @@ function patchXMLHttpRequest(win, config, bridge) {
         this.status = 0;
         this.statusText = "";
         this.error = error;
-        this.#setReadyState(WelfordXMLHttpRequest.DONE);
+        this.#setReadyState(OpenContainersXMLHttpRequest.DONE);
         this.#emit("error");
         this.#emit("loadend");
       });
@@ -216,7 +216,7 @@ function patchXMLHttpRequest(win, config, bridge) {
     abort() {
       if (this.#native) return this.#native.abort();
       this.#aborted = true;
-      this.#setReadyState(WelfordXMLHttpRequest.UNSENT);
+      this.#setReadyState(OpenContainersXMLHttpRequest.UNSENT);
       this.#emit("abort");
       this.#emit("loadend");
     }
@@ -271,7 +271,7 @@ function patchWebSocket(win, config, bridge) {
   const NativeWebSocket = win.WebSocket;
   if (!NativeWebSocket) return;
 
-  win.WebSocket = class WelfordWebSocket extends EventTarget {
+  win.WebSocket = class OpenContainersWebSocket extends EventTarget {
     constructor(input, protocols) {
       const request = mapPreviewWebSocketRequest(input, protocols, config, win.location?.href);
       if (!request) return new NativeWebSocket(input, protocols);
@@ -285,7 +285,7 @@ function patchWebSocket(win, config, bridge) {
   };
 }
 
-export function createParentBridge(win = globalThis.window, config = win?.__WELFORD_PREVIEW__ ?? {}) {
+export function createParentBridge(win = globalThis.window, config = win?.__OPENCONTAINERS_PREVIEW__ ?? {}) {
   let nextId = 1;
   const sockets = new Map();
   const pendingFetches = new Map();
@@ -293,7 +293,7 @@ export function createParentBridge(win = globalThis.window, config = win?.__WELF
 
   win.addEventListener?.("message", (event) => {
     const message = event.data;
-    if (message?.type === "welford:fetch:response") {
+    if (message?.type === "opencontainers:fetch:response") {
       const pending = pendingFetches.get(message.id);
       if (!pending) return;
       pendingFetches.delete(message.id);
@@ -309,7 +309,7 @@ export function createParentBridge(win = globalThis.window, config = win?.__WELF
       return;
     }
 
-    if (message?.type !== "welford:ws:event") return;
+    if (message?.type !== "opencontainers:ws:event") return;
     const socket = sockets.get(message.localId) ?? sockets.get(message.socketId);
     if (!socket) return;
     socket.receive(message);
@@ -326,7 +326,7 @@ export function createParentBridge(win = globalThis.window, config = win?.__WELF
       return new Promise((resolve, reject) => {
         pendingFetches.set(id, { resolve, reject });
         win.parent?.postMessage?.({
-          type: "welford:fetch:request",
+          type: "opencontainers:fetch:request",
           id,
           ...request
         }, targetOrigin);
@@ -338,7 +338,7 @@ export function createParentBridge(win = globalThis.window, config = win?.__WELF
       const socket = new PreviewVirtualWebSocket({ win, localId, targetOrigin });
       sockets.set(localId, socket);
       win.parent?.postMessage?.({
-        type: "welford:ws:connect",
+        type: "opencontainers:ws:connect",
         localId,
         projectId,
         port,
@@ -377,7 +377,7 @@ export class PreviewVirtualWebSocket extends EventTarget {
       throw new Error("WebSocket is not open");
     }
     this.win.parent?.postMessage?.({
-      type: "welford:ws:send",
+      type: "opencontainers:ws:send",
       localId: this.localId,
       socketId: this.socketId,
       data
@@ -388,7 +388,7 @@ export class PreviewVirtualWebSocket extends EventTarget {
     if (this.readyState === PreviewVirtualWebSocket.CLOSED) return;
     this.readyState = PreviewVirtualWebSocket.CLOSING;
     this.win.parent?.postMessage?.({
-      type: "welford:ws:close",
+      type: "opencontainers:ws:close",
       localId: this.localId,
       socketId: this.socketId,
       code,
@@ -459,9 +459,9 @@ function patchConsole(win, config) {
 export function previewClientBrowserScript() {
   return `(() => {
   function installPreviewClient(win = window) {
-    if (!win || win.__WELFORD_PREVIEW_CLIENT_INSTALLED__) return;
-    win.__WELFORD_PREVIEW_CLIENT_INSTALLED__ = true;
-    const config = win.__WELFORD_PREVIEW__;
+    if (!win || win.__OPENCONTAINERS_PREVIEW_CLIENT_INSTALLED__) return;
+    win.__OPENCONTAINERS_PREVIEW_CLIENT_INSTALLED__ = true;
+    const config = win.__OPENCONTAINERS_PREVIEW__;
     if (!config) return;
     const bridge = createParentBridge(win, config);
     patchConsole(win, config);
@@ -483,7 +483,7 @@ export function previewClientBrowserScript() {
       return previewOrigin + "/p/" + encodeURIComponent(config.projectId) + ":" + port + url.pathname + url.search;
     }
     if (url.origin === previewOrigin && url.pathname.startsWith("/p/")) return url.href;
-    if (url.origin === previewOrigin && !url.pathname.startsWith("/__welford/")) {
+    if (url.origin === previewOrigin && !url.pathname.startsWith("/__opencontainers/")) {
       return previewOrigin + "/p/" + encodeURIComponent(config.projectId) + ":" + config.defaultPort + url.pathname + url.search;
     }
     return null;
@@ -506,7 +506,7 @@ export function previewClientBrowserScript() {
         protocols
       };
     }
-    if (url.host !== previewHost || url.pathname.startsWith("/__welford/")) return null;
+    if (url.host !== previewHost || url.pathname.startsWith("/__opencontainers/")) return null;
     if (url.pathname.startsWith("/p/")) {
       const rest = url.pathname.slice(3);
       const slashIndex = rest.indexOf("/");
@@ -551,7 +551,7 @@ export function previewClientBrowserScript() {
   function patchXMLHttpRequest(win, config, bridge) {
     const NativeXMLHttpRequest = win.XMLHttpRequest;
     if (!NativeXMLHttpRequest) return;
-    win.XMLHttpRequest = class WelfordXMLHttpRequest extends EventTarget {
+    win.XMLHttpRequest = class OpenContainersXMLHttpRequest extends EventTarget {
       static UNSENT = 0;
       static OPENED = 1;
       static HEADERS_RECEIVED = 2;
@@ -559,7 +559,7 @@ export function previewClientBrowserScript() {
       static DONE = 4;
       constructor() {
         super();
-        this.readyState = WelfordXMLHttpRequest.UNSENT;
+        this.readyState = OpenContainersXMLHttpRequest.UNSENT;
         this.response = null;
         this.responseText = "";
         this.responseType = "";
@@ -591,7 +591,7 @@ export function previewClientBrowserScript() {
           this._native.open(method, url, async, user, password);
           return;
         }
-        this._setReadyState(WelfordXMLHttpRequest.OPENED);
+        this._setReadyState(OpenContainersXMLHttpRequest.OPENED);
       }
       setRequestHeader(name, value) {
         if (this._native) return this._native.setRequestHeader(name, value);
@@ -623,12 +623,12 @@ export function previewClientBrowserScript() {
           this.statusText = response.statusText;
           this.responseURL = this._mappedUrl;
           this._responseHeaders = [...response.headers.entries()];
-          this._setReadyState(WelfordXMLHttpRequest.HEADERS_RECEIVED);
+          this._setReadyState(OpenContainersXMLHttpRequest.HEADERS_RECEIVED);
           const arrayBuffer = await response.arrayBuffer();
           if (this._aborted) return;
-          this._setReadyState(WelfordXMLHttpRequest.LOADING);
+          this._setReadyState(OpenContainersXMLHttpRequest.LOADING);
           this._setResponse(arrayBuffer);
-          this._setReadyState(WelfordXMLHttpRequest.DONE);
+          this._setReadyState(OpenContainersXMLHttpRequest.DONE);
           this._emit("load");
           this._emit("loadend");
         }).catch((error) => {
@@ -636,7 +636,7 @@ export function previewClientBrowserScript() {
           this.status = 0;
           this.statusText = "";
           this.error = error;
-          this._setReadyState(WelfordXMLHttpRequest.DONE);
+          this._setReadyState(OpenContainersXMLHttpRequest.DONE);
           this._emit("error");
           this._emit("loadend");
         });
@@ -644,7 +644,7 @@ export function previewClientBrowserScript() {
       abort() {
         if (this._native) return this._native.abort();
         this._aborted = true;
-        this._setReadyState(WelfordXMLHttpRequest.UNSENT);
+        this._setReadyState(OpenContainersXMLHttpRequest.UNSENT);
         this._emit("abort");
         this._emit("loadend");
       }
@@ -693,7 +693,7 @@ export function previewClientBrowserScript() {
   function patchWebSocket(win, config, bridge) {
     const NativeWebSocket = win.WebSocket;
     if (!NativeWebSocket) return;
-    win.WebSocket = class WelfordWebSocket extends EventTarget {
+    win.WebSocket = class OpenContainersWebSocket extends EventTarget {
       constructor(input, protocols) {
         const request = mapPreviewWebSocketRequest(input, protocols, config, win.location?.href);
         if (!request) return new NativeWebSocket(input, protocols);
@@ -713,7 +713,7 @@ export function previewClientBrowserScript() {
     const targetOrigin = config.parentOrigin || win.location?.origin || "*";
     win.addEventListener?.("message", (event) => {
       const message = event.data;
-      if (message?.type === "welford:fetch:response") {
+      if (message?.type === "opencontainers:fetch:response") {
         const pending = pendingFetches.get(message.id);
         if (!pending) return;
         pendingFetches.delete(message.id);
@@ -725,7 +725,7 @@ export function previewClientBrowserScript() {
         }));
         return;
       }
-      if (message?.type !== "welford:ws:event") return;
+      if (message?.type !== "opencontainers:ws:event") return;
       const socket = sockets.get(message.localId) || sockets.get(message.socketId);
       if (!socket) return;
       socket.receive(message);
@@ -740,14 +740,14 @@ export function previewClientBrowserScript() {
         const id = "preview-fetch-" + nextId++;
         return new Promise((resolve, reject) => {
           pendingFetches.set(id, { resolve, reject });
-          win.parent?.postMessage?.({ type: "welford:fetch:request", id, ...request }, targetOrigin);
+          win.parent?.postMessage?.({ type: "opencontainers:fetch:request", id, ...request }, targetOrigin);
         });
       },
       webSocket({ projectId, port, path, protocols }) {
         const localId = "preview-ws-" + nextId++;
         const socket = new PreviewVirtualWebSocket({ win, localId, targetOrigin });
         sockets.set(localId, socket);
-        win.parent?.postMessage?.({ type: "welford:ws:connect", localId, projectId, port, path, protocols }, targetOrigin);
+        win.parent?.postMessage?.({ type: "opencontainers:ws:connect", localId, projectId, port, path, protocols }, targetOrigin);
         return socket;
       }
     };
@@ -774,12 +774,12 @@ export function previewClientBrowserScript() {
     }
     send(data) {
       if (this.readyState !== PreviewVirtualWebSocket.OPEN) throw new Error("WebSocket is not open");
-      this.win.parent?.postMessage?.({ type: "welford:ws:send", localId: this.localId, socketId: this.socketId, data }, this.targetOrigin);
+      this.win.parent?.postMessage?.({ type: "opencontainers:ws:send", localId: this.localId, socketId: this.socketId, data }, this.targetOrigin);
     }
     close(code = 1000, reason = "") {
       if (this.readyState === PreviewVirtualWebSocket.CLOSED) return;
       this.readyState = PreviewVirtualWebSocket.CLOSING;
-      this.win.parent?.postMessage?.({ type: "welford:ws:close", localId: this.localId, socketId: this.socketId, code, reason }, this.targetOrigin);
+      this.win.parent?.postMessage?.({ type: "opencontainers:ws:close", localId: this.localId, socketId: this.socketId, code, reason }, this.targetOrigin);
     }
     receive(message) {
       if (message.event === "connected") {

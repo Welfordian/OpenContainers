@@ -4,17 +4,17 @@ import { Kernel } from "../../../packages/kernel/src/Kernel.js";
 const WORKSPACE_ROOT = "/workspace";
 const textDecoder = new TextDecoder();
 
-export class WelfordContainer {
+export class OpenContainer {
   static async boot(options = {}) {
-    const container = new WelfordContainer(options);
+    const container = new OpenContainer(options);
     await container.boot();
     return container;
   }
 
   constructor({
     projectId = "demo",
-    previewBasePath = "/welford/preview",
-    serviceWorkerUrl = "/welford-runtime-sw.js",
+    previewBasePath = "/opencontainers/preview",
+    serviceWorkerUrl = "/opencontainers-runtime-sw.js",
     registerServiceWorker = true,
     serviceWorkerControllerTimeoutMs = 5000,
     kernel = new Kernel()
@@ -55,20 +55,20 @@ export class WelfordContainer {
 
   async spawn(command, args = [], options = {}) {
     if (command === "node" && (args[0] === "-v" || args[0] === "--version")) {
-      return syntheticProcess("v26.0.0-welford\n");
+      return syntheticProcess("v26.0.0-opencontainers\n");
     }
     const normalized = normalizeSpawn(command, args);
     const process = this.kernel.spawn(normalized.command, normalized.args, {
       cwd: WORKSPACE_ROOT,
       env: {
-        WELFORD_PROJECT_ID: this.projectId,
+        OPENCONTAINERS_PROJECT_ID: this.projectId,
         ...(options.env ?? {})
       },
       projectId: this.projectId
     });
     this.processes.add(process);
     process.completed.finally(() => this.processes.delete(process));
-    return new WelfordProcess({ container: this, process });
+    return new OpenContainerProcess({ container: this, process });
   }
 
   teardown() {
@@ -102,7 +102,7 @@ export class WelfordContainer {
     if (entry.projectId !== this.projectId) return;
     const url = this.#previewUrl(entry.port);
     if (this.registerServiceWorker && !this.serviceWorkerPort) {
-      this.#emit("error", new Error(`Server is listening on port ${entry.port}, but browser previews are not available because the Welford preview Service Worker is not controlling this page. Reload the page and run again.`));
+      this.#emit("error", new Error(`Server is listening on port ${entry.port}, but browser previews are not available because the OpenContainers preview Service Worker is not controlling this page. Reload the page and run again.`));
       return;
     }
     this.#emit("port", entry.port, "open", url);
@@ -119,7 +119,7 @@ export class WelfordContainer {
     if (typeof window !== "undefined" && window.location?.origin) {
       return new URL(path, window.location.origin).toString();
     }
-    return `https://run.welford.local${path}`;
+    return `https://run.opencontainers.local${path}`;
   }
 
   async #connectServiceWorker() {
@@ -134,7 +134,7 @@ export class WelfordContainer {
       timeoutMs: this.serviceWorkerControllerTimeoutMs
     });
     if (!worker) {
-      this.#emit("error", new Error("Welford preview Service Worker is registered but no active worker is available yet. Reload the page and run again."));
+      this.#emit("error", new Error("OpenContainers preview Service Worker is registered but no active worker is available yet. Reload the page and run again."));
       return;
     }
 
@@ -143,7 +143,7 @@ export class WelfordContainer {
       this.#handleServiceWorkerMessage(event.data, channel.port2);
     };
     channel.port2.start?.();
-    worker.postMessage({ type: "WELFORD_CONNECT_KERNEL" }, [channel.port1]);
+    worker.postMessage({ type: "OPENCONTAINERS_CONNECT_KERNEL" }, [channel.port1]);
     this.serviceWorkerPort = channel.port2;
   }
 
@@ -174,7 +174,7 @@ export class WelfordContainer {
   #clearWorkspacePreservingNodeModules() {
     const preserved = new Set([
       `${WORKSPACE_ROOT}/node_modules`,
-      `${WORKSPACE_ROOT}/package-lock.welford.json`
+      `${WORKSPACE_ROOT}/package-lock.opencontainers.json`
     ]);
     for (const [path] of [...this.kernel.fs.nodes.entries()].sort((left, right) => right[0].length - left[0].length)) {
       if (path === WORKSPACE_ROOT || !path.startsWith(`${WORKSPACE_ROOT}/`)) continue;
@@ -221,7 +221,7 @@ async function resolveServiceWorkerMessageTarget({
   return waitForServiceWorkerController(serviceWorker, timeoutMs);
 }
 
-export const WebContainer = WelfordContainer;
+export const WebContainer = OpenContainer;
 
 export function flattenWebContainerTree(tree, prefix = "") {
   const files = {};
@@ -238,12 +238,12 @@ export function flattenWebContainerTree(tree, prefix = "") {
   return files;
 }
 
-export function parseWelfordPreviewUrl(url, previewBasePath = "/welford/preview") {
-  const parsed = new URL(url, "https://run.welford.local");
+export function parseOpenContainersPreviewUrl(url, previewBasePath = "/opencontainers/preview") {
+  const parsed = new URL(url, "https://run.opencontainers.local");
   const base = previewBasePath.replace(/\/$/, "");
   const marker = `${base}/`;
   const markerIndex = parsed.pathname.lastIndexOf(marker);
-  if (markerIndex === -1) throw new Error(`Not a Welford preview URL: ${parsed.pathname}`);
+  if (markerIndex === -1) throw new Error(`Not a OpenContainers preview URL: ${parsed.pathname}`);
   const rest = parsed.pathname.slice(markerIndex + marker.length);
   const slashIndex = rest.indexOf("/");
   const projectSegment = slashIndex === -1 ? rest : rest.slice(0, slashIndex);
@@ -258,11 +258,11 @@ export function parseWelfordPreviewUrl(url, previewBasePath = "/welford/preview"
 
 function parsePreviewRequest(request, previewBasePath, fallbackProjectId) {
   try {
-    return parseWelfordPreviewUrl(request.url, previewBasePath);
+    return parseOpenContainersPreviewUrl(request.url, previewBasePath);
   } catch (error) {
     const port = Number(request.port);
     if (!Number.isFinite(port) || port <= 0) throw error;
-    const parsed = new URL(request.url || "/", "https://run.welford.local");
+    const parsed = new URL(request.url || "/", "https://run.opencontainers.local");
     return {
       projectId: request.projectId ?? fallbackProjectId,
       port,
@@ -272,7 +272,7 @@ function parsePreviewRequest(request, previewBasePath, fallbackProjectId) {
   }
 }
 
-export function createWelfordServiceWorkerScript({ previewBasePath = "/welford/preview" } = {}) {
+export function createOpenContainersServiceWorkerScript({ previewBasePath = "/opencontainers/preview" } = {}) {
   return `
 const previewBasePath = ${JSON.stringify(previewBasePath.replace(/\/$/, ""))};
 let kernelPort = null;
@@ -280,7 +280,7 @@ const pending = new Map();
 self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
 self.addEventListener("message", event => {
-  if (event.data?.type === "WELFORD_CONNECT_KERNEL" && event.ports?.[0]) {
+  if (event.data?.type === "OPENCONTAINERS_CONNECT_KERNEL" && event.ports?.[0]) {
     kernelPort = event.ports[0];
     kernelPort.onmessage = handleKernelMessage;
     kernelPort.start?.();
@@ -300,7 +300,7 @@ function handleKernelMessage(event) {
   pendingRequest.resolve(message.payload);
 }
 async function handlePreviewFetch(request) {
-  if (!kernelPort) return new Response("Welford runtime is not connected", { status: 503 });
+  if (!kernelPort) return new Response("OpenContainers runtime is not connected", { status: 503 });
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : new Uint8Array(await request.arrayBuffer());
   const payload = await requestKernel("dispatchHttp", {
     url: request.url,
@@ -309,7 +309,7 @@ async function handlePreviewFetch(request) {
     body
   });
   if (!payload.ok) {
-    return new Response(payload.error?.message || "Welford preview request failed", { status: 500 });
+    return new Response(payload.error?.message || "OpenContainers preview request failed", { status: 500 });
   }
   const response = payload.response || {};
   const headers = new Headers(response.headers || []);
@@ -324,7 +324,7 @@ function requestKernel(type, payload) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       pending.delete(id);
-      reject(new Error("Timed out waiting for Welford runtime"));
+      reject(new Error("Timed out waiting for OpenContainers runtime"));
     }, 30000);
     pending.set(id, { resolve: value => {
       clearTimeout(timeout);
@@ -336,7 +336,7 @@ function requestKernel(type, payload) {
 `;
 }
 
-class WelfordProcess {
+class OpenContainerProcess {
   constructor({ container, process }) {
     this.container = container;
     this.process = process;

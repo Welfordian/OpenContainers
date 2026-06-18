@@ -1,11 +1,11 @@
 import { previewClientBrowserScript } from "../../preview-client/src/index.js";
 
-const PREVIEW_SNIPPET_MARKER = "__WELFORD_PREVIEW__";
+const PREVIEW_SNIPPET_MARKER = "__OPENCONTAINERS_PREVIEW__";
 
 export function injectPreviewClient(html, {
   projectId,
   defaultPort,
-  bridgePath = `/__welford/bridge/${projectId}`,
+  bridgePath = `/__opencontainers/bridge/${projectId}`,
   parentOrigin,
   previewOrigin,
   baseUrl

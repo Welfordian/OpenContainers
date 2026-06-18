@@ -199,7 +199,7 @@ test("global fetch blocks host application origin even when external network per
   kernel.allowExternalNetwork = true;
   kernel.fs.writeFileSync("/workspace/client.mjs", `
     try {
-      await fetch('https://run.welford.local/api/private');
+      await fetch('https://run.opencontainers.local/api/private');
     } catch (error) {
       console.log(error.code);
     }
@@ -211,14 +211,14 @@ test("global fetch blocks host application origin even when external network per
   };
   Object.defineProperty(globalThis, "location", {
     configurable: true,
-    value: { origin: "https://run.welford.local" }
+    value: { origin: "https://run.opencontainers.local" }
   });
 
   try {
     const result = await kernel.run("node", ["client.mjs"], { cwd: "/workspace" });
 
     assert.equal(result.status, 0, result.stderr.toString());
-    assert.equal(result.stdout.toString(), "ERR_WELFORD_HOST_ORIGIN_BLOCKED\n");
+    assert.equal(result.stdout.toString(), "ERR_OPENCONTAINERS_HOST_ORIGIN_BLOCKED\n");
   } finally {
     globalThis.fetch = oldFetch;
     restoreGlobalLocation(oldLocationDescriptor);
@@ -235,7 +235,7 @@ test("https.get blocks host application origin even when external network permis
   };
   Object.defineProperty(globalThis, "location", {
     configurable: true,
-    value: { origin: "https://run.welford.local" }
+    value: { origin: "https://run.opencontainers.local" }
   });
 
   try {
@@ -243,13 +243,13 @@ test("https.get blocks host application origin even when external network permis
       "-e",
       `
         const https = require('https');
-        const req = https.get('https://run.welford.local/api/private', () => {});
+        const req = https.get('https://run.opencontainers.local/api/private', () => {});
         req.on('error', (error) => console.log(error.code));
       `
     ], { cwd: "/workspace" });
 
     assert.equal(result.status, 0, result.stderr.toString());
-    assert.equal(result.stdout.toString(), "ERR_WELFORD_HOST_ORIGIN_BLOCKED\n");
+    assert.equal(result.stdout.toString(), "ERR_OPENCONTAINERS_HOST_ORIGIN_BLOCKED\n");
   } finally {
     globalThis.fetch = oldFetch;
     restoreGlobalLocation(oldLocationDescriptor);
@@ -268,7 +268,7 @@ test("http.get blocks external requests without external network permission", as
   ], { cwd: "/workspace" });
 
   assert.equal(result.status, 0, result.stderr.toString());
-  assert.equal(result.stdout.toString(), "ERR_WELFORD_EXTERNAL_NETWORK_BLOCKED\n");
+  assert.equal(result.stdout.toString(), "ERR_OPENCONTAINERS_EXTERNAL_NETWORK_BLOCKED\n");
 });
 
 test("global fetch blocks external requests without external network permission", async () => {
@@ -289,7 +289,7 @@ test("global fetch blocks external requests without external network permission"
     const result = await kernel.run("node", ["client.mjs"], { cwd: "/workspace" });
 
     assert.equal(result.status, 0, result.stderr.toString());
-    assert.equal(result.stdout.toString(), "ERR_WELFORD_EXTERNAL_NETWORK_BLOCKED\n");
+    assert.equal(result.stdout.toString(), "ERR_OPENCONTAINERS_EXTERNAL_NETWORK_BLOCKED\n");
   } finally {
     globalThis.fetch = oldFetch;
   }
@@ -315,7 +315,7 @@ test("global fetch reports browser CORS and network failures clearly", async () 
     const result = await kernel.run("node", ["client.mjs"], { cwd: "/workspace" });
 
     assert.equal(result.status, 0, result.stderr.toString());
-    assert.equal(result.stdout.toString(), "ERR_WELFORD_EXTERNAL_FETCH_FAILED\ntrue\n");
+    assert.equal(result.stdout.toString(), "ERR_OPENCONTAINERS_EXTERNAL_FETCH_FAILED\ntrue\n");
   } finally {
     globalThis.fetch = oldFetch;
   }

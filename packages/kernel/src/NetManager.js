@@ -126,8 +126,8 @@ export class NetManager {
 
   connect({ projectId = "default", port, host = "127.0.0.1" }) {
     if (!isLoopbackHost(host)) {
-      throw Object.assign(new Error(`Raw TCP to ${host}:${port} is not supported in Welford Containers V1`), {
-        code: "ERR_WELFORD_RAW_TCP_UNSUPPORTED"
+      throw Object.assign(new Error(`Raw TCP to ${host}:${port} is not supported in OpenContainers V1`), {
+        code: "ERR_OPENCONTAINERS_RAW_TCP_UNSUPPORTED"
       });
     }
     const listener = this.listeners.get(this.#key(projectId, Number(port)));
