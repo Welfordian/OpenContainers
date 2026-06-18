@@ -38,3 +38,34 @@ test("Service Worker runtime dispatches preview requests through the kernel port
   assert.match(html, /"parentOrigin":"https:\/\/run\.opencontainers\.local"/);
   assert.doesNotMatch(html, /src="\/__opencontainers\/preview-client\.js"/);
 });
+
+test("Service Worker runtime asks window clients to reconnect when its kernel port is missing", async () => {
+  const messages = [];
+  let runtime = null;
+  const port = {
+    start() {},
+    postMessage() {}
+  };
+  const scope = {
+    clients: {
+      async matchAll(options) {
+        assert.deepEqual(options, {
+          type: "window",
+          includeUncontrolled: true
+        });
+        return [{
+          postMessage(message) {
+            messages.push(message);
+            runtime.connect(port);
+          }
+        }];
+      }
+    }
+  };
+  runtime = new OpenContainersServiceWorkerRuntime({ scope, timeoutMs: 1000 });
+
+  const connectedPort = await runtime.requestRuntimeConnection();
+
+  assert.equal(connectedPort, port);
+  assert.deepEqual(messages, [{ type: "OPENCONTAINERS_REQUEST_KERNEL_CONNECTION" }]);
+});

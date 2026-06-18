@@ -5802,7 +5802,7 @@ var Kernel = class {
 // packages/embed/src/webcontainer-compatible.js
 var WORKSPACE_ROOT = "/workspace";
 var textDecoder3 = new TextDecoder();
-var _OpenContainer_instances, handlePortRegister_fn, handlePortUnregister_fn, previewUrl_fn, connectServiceWorker_fn, handleServiceWorkerMessage_fn, writeWorkspaceFile_fn, clearWorkspacePreservingNodeModules_fn, emit_fn2;
+var _OpenContainer_instances, handlePortRegister_fn, handlePortUnregister_fn, previewUrl_fn, connectServiceWorker_fn, installServiceWorkerMessageListener_fn, reconnectServiceWorker_fn, connectServiceWorkerTarget_fn, handleServiceWorkerMessage_fn, writeWorkspaceFile_fn, clearWorkspacePreservingNodeModules_fn, emit_fn2;
 var _OpenContainer = class _OpenContainer {
   constructor({
     projectId = "demo",
@@ -5822,6 +5822,8 @@ var _OpenContainer = class _OpenContainer {
     this.listeners = /* @__PURE__ */ new Map();
     this.processes = /* @__PURE__ */ new Set();
     this.serviceWorkerPort = null;
+    this.serviceWorkerMessageListener = null;
+    this.serviceWorkerReconnectPromise = null;
     this.fs = createFsFacade(this);
     this.kernel.portManager.on("register", (entry) => __privateMethod(this, _OpenContainer_instances, handlePortRegister_fn).call(this, entry));
     this.kernel.portManager.on("unregister", (entry) => __privateMethod(this, _OpenContainer_instances, handlePortUnregister_fn).call(this, entry));
@@ -5869,13 +5871,19 @@ var _OpenContainer = class _OpenContainer {
     return new OpenContainerProcess({ container: this, process });
   }
   teardown() {
-    var _a2, _b;
+    var _a2, _b, _c;
     for (const process of [...this.processes]) {
       process.kill("SIGTERM");
     }
     this.processes.clear();
     (_b = (_a2 = this.serviceWorkerPort) == null ? void 0 : _a2.close) == null ? void 0 : _b.call(_a2);
     this.serviceWorkerPort = null;
+    const serviceWorker = typeof navigator === "undefined" ? null : navigator.serviceWorker;
+    if (serviceWorker && this.serviceWorkerMessageListener) {
+      (_c = serviceWorker.removeEventListener) == null ? void 0 : _c.call(serviceWorker, "message", this.serviceWorkerMessageListener);
+    }
+    this.serviceWorkerMessageListener = null;
+    this.serviceWorkerReconnectPromise = null;
     this.listeners.clear();
   }
   async dispatchPreviewRequest(request) {
@@ -5920,11 +5928,11 @@ previewUrl_fn = function(port) {
   return `https://run.opencontainers.local${path}`;
 };
 connectServiceWorker_fn = async function() {
-  var _a2, _b;
   const serviceWorker = typeof navigator === "undefined" ? null : navigator.serviceWorker;
   if (!serviceWorker) return;
   const registration = await serviceWorker.register(this.serviceWorkerUrl, { scope: "/" });
   const readyRegistration = await serviceWorker.ready;
+  __privateMethod(this, _OpenContainer_instances, installServiceWorkerMessageListener_fn).call(this, serviceWorker);
   const worker = await resolveServiceWorkerMessageTarget({
     serviceWorker,
     registration,
@@ -5935,11 +5943,43 @@ connectServiceWorker_fn = async function() {
     __privateMethod(this, _OpenContainer_instances, emit_fn2).call(this, "error", new Error("OpenContainers preview Service Worker is registered but no active worker is available yet. Reload the page and run again."));
     return;
   }
+  __privateMethod(this, _OpenContainer_instances, connectServiceWorkerTarget_fn).call(this, worker);
+};
+installServiceWorkerMessageListener_fn = function(serviceWorker) {
+  var _a2;
+  if (this.serviceWorkerMessageListener) return;
+  this.serviceWorkerMessageListener = (event) => {
+    var _a3;
+    if (((_a3 = event.data) == null ? void 0 : _a3.type) !== "OPENCONTAINERS_REQUEST_KERNEL_CONNECTION") return;
+    __privateMethod(this, _OpenContainer_instances, reconnectServiceWorker_fn).call(this).catch((error) => {
+      __privateMethod(this, _OpenContainer_instances, emit_fn2).call(this, "error", error);
+    });
+  };
+  (_a2 = serviceWorker.addEventListener) == null ? void 0 : _a2.call(serviceWorker, "message", this.serviceWorkerMessageListener);
+};
+reconnectServiceWorker_fn = async function() {
+  if (this.serviceWorkerReconnectPromise) return this.serviceWorkerReconnectPromise;
+  this.serviceWorkerReconnectPromise = (async () => {
+    const serviceWorker = typeof navigator === "undefined" ? null : navigator.serviceWorker;
+    const worker = serviceWorker ? await resolveServiceWorkerMessageTarget({
+      serviceWorker,
+      timeoutMs: this.serviceWorkerControllerTimeoutMs
+    }) : null;
+    if (!worker) throw new Error("OpenContainers preview Service Worker requested a runtime reconnect, but this page is not controlled by a Service Worker. Reload the page and run again.");
+    __privateMethod(this, _OpenContainer_instances, connectServiceWorkerTarget_fn).call(this, worker);
+  })().finally(() => {
+    this.serviceWorkerReconnectPromise = null;
+  });
+  return this.serviceWorkerReconnectPromise;
+};
+connectServiceWorkerTarget_fn = function(worker) {
+  var _a2, _b, _c, _d;
+  (_b = (_a2 = this.serviceWorkerPort) == null ? void 0 : _a2.close) == null ? void 0 : _b.call(_a2);
   const channel = new MessageChannel();
   channel.port2.onmessage = (event) => {
     __privateMethod(this, _OpenContainer_instances, handleServiceWorkerMessage_fn).call(this, event.data, channel.port2);
   };
-  (_b = (_a2 = channel.port2).start) == null ? void 0 : _b.call(_a2);
+  (_d = (_c = channel.port2).start) == null ? void 0 : _d.call(_c);
   worker.postMessage({ type: "OPENCONTAINERS_CONNECT_KERNEL" }, [channel.port1]);
   this.serviceWorkerPort = channel.port2;
 };
@@ -6068,6 +6108,7 @@ function createOpenContainersServiceWorkerScript({ previewBasePath = "/openconta
   return `
 const previewBasePath = ${JSON.stringify(previewBasePath.replace(/\/$/, ""))};
 let kernelPort = null;
+let reconnectPromise = null;
 const pending = new Map();
 self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
@@ -6092,6 +6133,7 @@ function handleKernelMessage(event) {
   pendingRequest.resolve(message.payload);
 }
 async function handlePreviewFetch(request) {
+  if (!kernelPort) await requestRuntimeConnection();
   if (!kernelPort) return new Response("OpenContainers runtime is not connected", { status: 503 });
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : new Uint8Array(await request.arrayBuffer());
   const payload = await requestKernel("dispatchHttp", {
@@ -6124,6 +6166,29 @@ function requestKernel(type, payload) {
     }});
     kernelPort.postMessage({ id, type, payload });
   });
+}
+async function requestRuntimeConnection() {
+  if (kernelPort) return kernelPort;
+  if (!reconnectPromise) {
+    reconnectPromise = requestRuntimeConnectionOnce().finally(() => {
+      reconnectPromise = null;
+    });
+  }
+  return reconnectPromise;
+}
+async function requestRuntimeConnectionOnce() {
+  const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const client of clients) {
+    client.postMessage?.({ type: "OPENCONTAINERS_REQUEST_KERNEL_CONNECTION" });
+  }
+  const deadline = Date.now() + 1500;
+  while (!kernelPort && Date.now() < deadline) {
+    await sleep(25);
+  }
+  return kernelPort;
+}
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 `;
 }
@@ -6231,8 +6296,8 @@ function randomId() {
   return (_c = (_b = (_a2 = globalThis.crypto) == null ? void 0 : _a2.randomUUID) == null ? void 0 : _b.call(_a2)) != null ? _c : Math.random().toString(16).slice(2);
 }
 export {
-  WebContainer,
   OpenContainer,
+  WebContainer,
   createOpenContainersServiceWorkerScript,
   flattenWebContainerTree,
   parseOpenContainersPreviewUrl

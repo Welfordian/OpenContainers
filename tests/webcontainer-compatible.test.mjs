@@ -272,6 +272,66 @@ test("OpenContainer facade waits for Service Worker control before connecting pr
   }
 });
 
+test("OpenContainer facade reconnects the Service Worker when previews request a runtime channel", async () => {
+  const previousNavigator = globalThis.navigator;
+  const previousWindow = globalThis.window;
+  const postedMessages = [];
+  const listeners = new Map();
+  const controller = {
+    postMessage(message, ports) {
+      postedMessages.push({ message, ports });
+    }
+  };
+  const serviceWorker = {
+    controller,
+    async register() {
+      return { active: controller };
+    },
+    ready: Promise.resolve({ active: controller }),
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type, listener) {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    }
+  };
+
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { serviceWorker }
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { location: { origin: "https://example.test" } }
+  });
+
+  try {
+    const container = await OpenContainer.boot();
+    assert.equal(postedMessages.length, 1);
+    assert.equal(postedMessages[0].message.type, "OPENCONTAINERS_CONNECT_KERNEL");
+
+    listeners.get("message")?.({
+      data: { type: "OPENCONTAINERS_REQUEST_KERNEL_CONNECTION" }
+    });
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    assert.equal(postedMessages.length, 2);
+    assert.equal(postedMessages[1].message.type, "OPENCONTAINERS_CONNECT_KERNEL");
+
+    container.teardown();
+    assert.equal(listeners.has("message"), false);
+  } finally {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: previousNavigator
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: previousWindow
+    });
+  }
+});
+
 test("OpenContainer facade does not connect previews until the Service Worker controls the page", async () => {
   const previousNavigator = globalThis.navigator;
   const previousWindow = globalThis.window;
@@ -419,6 +479,7 @@ test("OpenContainer facade supports node:worker_threads eval workers", async () 
 test("OpenContainers service worker script contains preview routing contract", () => {
   const script = createOpenContainersServiceWorkerScript();
   assert.match(script, /OPENCONTAINERS_CONNECT_KERNEL/);
+  assert.match(script, /OPENCONTAINERS_REQUEST_KERNEL_CONNECTION/);
   assert.match(script, /\/opencontainers\/preview/);
   assert.match(script, /dispatchHttp/);
 });

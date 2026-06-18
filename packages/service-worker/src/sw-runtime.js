@@ -8,6 +8,7 @@ export class OpenContainersServiceWorkerRuntime {
     this.timeoutMs = timeoutMs;
     this.kernelPort = null;
     this.pending = new Map();
+    this.reconnectPromise = null;
   }
 
   connect(port) {
@@ -87,6 +88,33 @@ export class OpenContainersServiceWorkerRuntime {
       this.kernelPort.postMessage({ id: requestId, type, payload });
     });
   }
+
+  async requestRuntimeConnection() {
+    if (this.kernelPort) return this.kernelPort;
+    if (!this.reconnectPromise) {
+      this.reconnectPromise = this.requestRuntimeConnectionOnce().finally(() => {
+        this.reconnectPromise = null;
+      });
+    }
+    return this.reconnectPromise;
+  }
+
+  async requestRuntimeConnectionOnce() {
+    if (!this.scope.clients?.matchAll) return null;
+    const clients = await this.scope.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true
+    });
+    for (const client of clients) {
+      client.postMessage?.({ type: "OPENCONTAINERS_REQUEST_KERNEL_CONNECTION" });
+    }
+
+    const deadline = Date.now() + 1500;
+    while (!this.kernelPort && Date.now() < deadline) {
+      await sleep(25);
+    }
+    return this.kernelPort;
+  }
 }
 
 export function installOpenContainersServiceWorker(scope = self) {
@@ -100,11 +128,16 @@ export function installOpenContainersServiceWorker(scope = self) {
   });
   scope.addEventListener("fetch", (event) => {
     event.respondWith((async () => {
+      if (!runtime.kernelPort) await runtime.requestRuntimeConnection();
       const response = await runtime.fetch(event.request);
       return response ?? fetch(event.request);
     })());
   });
   return runtime;
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function deserializeError(error) {

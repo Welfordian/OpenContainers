@@ -28,6 +28,8 @@ export class OpenContainer {
     this.listeners = new Map();
     this.processes = new Set();
     this.serviceWorkerPort = null;
+    this.serviceWorkerMessageListener = null;
+    this.serviceWorkerReconnectPromise = null;
     this.fs = createFsFacade(this);
 
     this.kernel.portManager.on("register", (entry) => this.#handlePortRegister(entry));
@@ -78,6 +80,12 @@ export class OpenContainer {
     this.processes.clear();
     this.serviceWorkerPort?.close?.();
     this.serviceWorkerPort = null;
+    const serviceWorker = typeof navigator === "undefined" ? null : navigator.serviceWorker;
+    if (serviceWorker && this.serviceWorkerMessageListener) {
+      serviceWorker.removeEventListener?.("message", this.serviceWorkerMessageListener);
+    }
+    this.serviceWorkerMessageListener = null;
+    this.serviceWorkerReconnectPromise = null;
     this.listeners.clear();
   }
 
@@ -127,6 +135,7 @@ export class OpenContainer {
     if (!serviceWorker) return;
     const registration = await serviceWorker.register(this.serviceWorkerUrl, { scope: "/" });
     const readyRegistration = await serviceWorker.ready;
+    this.#installServiceWorkerMessageListener(serviceWorker);
     const worker = await resolveServiceWorkerMessageTarget({
       serviceWorker,
       registration,
@@ -138,6 +147,40 @@ export class OpenContainer {
       return;
     }
 
+    this.#connectServiceWorkerTarget(worker);
+  }
+
+  #installServiceWorkerMessageListener(serviceWorker) {
+    if (this.serviceWorkerMessageListener) return;
+    this.serviceWorkerMessageListener = (event) => {
+      if (event.data?.type !== "OPENCONTAINERS_REQUEST_KERNEL_CONNECTION") return;
+      this.#reconnectServiceWorker().catch((error) => {
+        this.#emit("error", error);
+      });
+    };
+    serviceWorker.addEventListener?.("message", this.serviceWorkerMessageListener);
+  }
+
+  async #reconnectServiceWorker() {
+    if (this.serviceWorkerReconnectPromise) return this.serviceWorkerReconnectPromise;
+    this.serviceWorkerReconnectPromise = (async () => {
+      const serviceWorker = typeof navigator === "undefined" ? null : navigator.serviceWorker;
+      const worker = serviceWorker
+        ? await resolveServiceWorkerMessageTarget({
+          serviceWorker,
+          timeoutMs: this.serviceWorkerControllerTimeoutMs
+        })
+        : null;
+      if (!worker) throw new Error("OpenContainers preview Service Worker requested a runtime reconnect, but this page is not controlled by a Service Worker. Reload the page and run again.");
+      this.#connectServiceWorkerTarget(worker);
+    })().finally(() => {
+      this.serviceWorkerReconnectPromise = null;
+    });
+    return this.serviceWorkerReconnectPromise;
+  }
+
+  #connectServiceWorkerTarget(worker) {
+    this.serviceWorkerPort?.close?.();
     const channel = new MessageChannel();
     channel.port2.onmessage = (event) => {
       this.#handleServiceWorkerMessage(event.data, channel.port2);
@@ -276,6 +319,7 @@ export function createOpenContainersServiceWorkerScript({ previewBasePath = "/op
   return `
 const previewBasePath = ${JSON.stringify(previewBasePath.replace(/\/$/, ""))};
 let kernelPort = null;
+let reconnectPromise = null;
 const pending = new Map();
 self.addEventListener("install", event => event.waitUntil(self.skipWaiting()));
 self.addEventListener("activate", event => event.waitUntil(self.clients.claim()));
@@ -300,6 +344,7 @@ function handleKernelMessage(event) {
   pendingRequest.resolve(message.payload);
 }
 async function handlePreviewFetch(request) {
+  if (!kernelPort) await requestRuntimeConnection();
   if (!kernelPort) return new Response("OpenContainers runtime is not connected", { status: 503 });
   const body = request.method === "GET" || request.method === "HEAD" ? undefined : new Uint8Array(await request.arrayBuffer());
   const payload = await requestKernel("dispatchHttp", {
@@ -332,6 +377,29 @@ function requestKernel(type, payload) {
     }});
     kernelPort.postMessage({ id, type, payload });
   });
+}
+async function requestRuntimeConnection() {
+  if (kernelPort) return kernelPort;
+  if (!reconnectPromise) {
+    reconnectPromise = requestRuntimeConnectionOnce().finally(() => {
+      reconnectPromise = null;
+    });
+  }
+  return reconnectPromise;
+}
+async function requestRuntimeConnectionOnce() {
+  const clients = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  for (const client of clients) {
+    client.postMessage?.({ type: "OPENCONTAINERS_REQUEST_KERNEL_CONNECTION" });
+  }
+  const deadline = Date.now() + 1500;
+  while (!kernelPort && Date.now() < deadline) {
+    await sleep(25);
+  }
+  return kernelPort;
+}
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 `;
 }
