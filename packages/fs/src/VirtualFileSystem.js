@@ -95,7 +95,7 @@ export class VirtualFileSystem {
       id: this.nextInode++,
       type,
       path,
-      mode: type === "directory" ? 0o40755 : 0o100644,
+      mode: type === "directory" ? 0o40755 : type === "symlink" ? 0o120777 : 0o100644,
       atimeMs: now,
       mtimeMs: now,
       ctimeMs: now,
@@ -117,10 +117,26 @@ export class VirtualFileSystem {
     node.ctimeMs = now;
   }
 
-  #lookup(path) {
+  #timeToMs(value) {
+    if (value instanceof Date) return value.getTime();
+    const number = Number(value);
+    if (!Number.isFinite(number)) throw new TypeError("Invalid time value");
+    return number * 1000;
+  }
+
+  #symlinkTargetPath(linkPath, target) {
+    return normalizePath(String(target).startsWith("/") ? target : `${dirname(linkPath)}/${target}`);
+  }
+
+  #lookup(path, { followSymlinks = true } = {}, seen = new Set()) {
     const normalized = normalizePath(path);
     const node = this.nodes.get(normalized);
     if (!node) throw new VirtualFileSystemError("ENOENT", normalized, "no such file or directory");
+    if (followSymlinks && node.type === "symlink") {
+      if (seen.has(normalized)) throw new VirtualFileSystemError("ELOOP", normalized, "too many symbolic links encountered");
+      seen.add(normalized);
+      return this.#lookup(this.#symlinkTargetPath(normalized, node.target), { followSymlinks }, seen);
+    }
     return node;
   }
 
@@ -167,7 +183,40 @@ export class VirtualFileSystem {
   }
 
   lstatSync(path) {
-    return this.statSync(path);
+    return new VirtualStats(this.#lookup(path, { followSymlinks: false }));
+  }
+
+  realpathSync(path) {
+    const normalized = normalizePath(path);
+    const node = this.#lookup(normalized, { followSymlinks: false });
+    if (node.type !== "symlink") return normalized;
+    return this.realpathSync(this.#symlinkTargetPath(normalized, node.target));
+  }
+
+  readlinkSync(path) {
+    const normalized = normalizePath(path);
+    const node = this.#lookup(normalized, { followSymlinks: false });
+    if (node.type !== "symlink") throw new VirtualFileSystemError("EINVAL", normalized, "invalid argument");
+    return node.target;
+  }
+
+  symlinkSync(target, path) {
+    const normalized = normalizePath(path);
+    if (this.nodes.has(normalized)) throw new VirtualFileSystemError("EEXIST", normalized, "file already exists");
+    const parent = this.#requireParent(normalized);
+    const node = this.#createNode("symlink", normalized, { target: String(target), mode: 0o120777 });
+    this.nodes.set(normalized, node);
+    parent.children.add(basename(normalized));
+    this.#touch(parent);
+    this.#emit("rename", normalized);
+  }
+
+  utimesSync(path, atime, mtime) {
+    const node = this.#lookup(path);
+    node.atimeMs = this.#timeToMs(atime);
+    node.mtimeMs = this.#timeToMs(mtime);
+    node.ctimeMs = this.#now();
+    this.#emit("change", path);
   }
 
   mkdirSync(path, options = {}) {
@@ -227,6 +276,10 @@ export class VirtualFileSystem {
         : new Uint8Array(data);
 
     let node = this.nodes.get(normalized);
+    if (node?.type === "symlink") {
+      this.writeFileSync(this.#symlinkTargetPath(normalized, node.target), data, options);
+      return;
+    }
     if (node && node.type !== "file") {
       throw new VirtualFileSystemError("EISDIR", normalized, "illegal operation on a directory");
     }
@@ -257,7 +310,7 @@ export class VirtualFileSystem {
       throw new VirtualFileSystemError("ENOENT", normalized, "no such file or directory");
     }
     if (normalized === "/") throw new VirtualFileSystemError("EBUSY", normalized, "cannot remove root");
-    const node = this.#lookup(normalized);
+    const node = this.#lookup(normalized, { followSymlinks: false });
     if (node.type === "directory" && node.children.size && !options.recursive) {
       throw new VirtualFileSystemError("ENOTEMPTY", normalized, "directory not empty");
     }
@@ -282,7 +335,7 @@ export class VirtualFileSystem {
   renameSync(oldPath, newPath) {
     const from = normalizePath(oldPath);
     const to = normalizePath(newPath);
-    const node = this.#lookup(from);
+    const node = this.#lookup(from, { followSymlinks: false });
     this.#requireParent(to);
     const entries = [...this.nodes.entries()].filter(([path]) => path === from || isInsidePath(from, path));
     entries.sort((a, b) => a[0].length - b[0].length);

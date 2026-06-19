@@ -6,8 +6,9 @@ import { Kernel } from "./Kernel.js";
 const decoder = new TextDecoder();
 
 export class KernelWorkerHost {
-  constructor({ kernel = new Kernel(), postMessage = () => {}, persistenceDriver = null, storageEstimate = null } = {}) {
-    this.kernel = kernel;
+  constructor({ kernel = null, postMessage = () => {}, persistenceDriver = null, storageEstimate = null, registryClient = undefined } = {}) {
+    this.registryClient = registryClient;
+    this.kernel = kernel ?? new Kernel({ registryClient });
     this.postMessage = postMessage;
     this.persistenceDriver = persistenceDriver;
     this.storageEstimate = storageEstimate;
@@ -80,7 +81,8 @@ export class KernelWorkerHost {
     this.defaultPreviewPort = defaultPreviewPort;
     this.currentPreviewPort = null;
     this.kernel = new Kernel({
-      fs: new VirtualFileSystem({ files: normalizeProjectFiles(files) })
+      fs: new VirtualFileSystem({ files: normalizeProjectFiles(files) }),
+      registryClient: this.registryClient
     });
     this.kernel.allowExternalNetwork = false;
     this.kernel.allowInstallScripts = false;

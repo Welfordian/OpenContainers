@@ -26,6 +26,17 @@ export function resolvePath(cwd, input = ".") {
   return normalizePath(`${cwd || "/"}/${input}`);
 }
 
+export function expandHomePath(input = ".", home = "/workspace") {
+  const value = String(input);
+  if (value === "~") return normalizePath(home);
+  if (value.startsWith("~/")) return normalizePath(`${home}/${value.slice(2)}`);
+  return value;
+}
+
+export function resolveShellPath(cwd, input = ".", home = "/workspace") {
+  return resolvePath(cwd, expandHomePath(input, home));
+}
+
 export function dirname(input) {
   const normalized = normalizePath(input);
   if (normalized === "/") return "/";
@@ -36,7 +47,7 @@ export function dirname(input) {
 
 export function basename(input) {
   const normalized = normalizePath(input);
-  if (normalized === "/") return "/";
+  if (normalized === "/") return "";
   const index = normalized.lastIndexOf("/");
   return index === -1 ? normalized : normalized.slice(index + 1);
 }
@@ -62,7 +73,7 @@ export function relativePath(from, to) {
     fromParts.shift();
     toParts.shift();
   }
-  return [...fromParts.map(() => ".."), ...toParts].join("/") || ".";
+  return [...fromParts.map(() => ".."), ...toParts].join("/");
 }
 
 export function isInsidePath(parent, child) {

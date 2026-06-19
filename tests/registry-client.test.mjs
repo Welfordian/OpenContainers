@@ -226,6 +226,39 @@ test("OpenContainersBuffer keeps base64id on the Node-compatible ID path", () =>
   assert.equal(/^[0-9]+$/.test(rand.toString("base64")), false);
 });
 
+test("OpenContainersBuffer exposes enumerable statics for Buffer wrapper packages", () => {
+  const copied = {};
+  for (const key in OpenContainersBuffer) copied[key] = OpenContainersBuffer[key];
+
+  assert.equal(typeof copied.from, "function");
+  assert.equal(typeof copied.allocUnsafe, "function");
+  assert.equal(typeof copied.isBuffer, "function");
+  assert.equal(typeof copied.byteLength, "function");
+  assert.equal(copied.isBuffer(copied.from("ok")), true);
+  assert.equal(copied.byteLength("ok"), 2);
+});
+
+test("RuntimeBuffer backfills Node Buffer static helpers on host shims", async () => {
+  const bufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, "Buffer");
+  Object.defineProperty(globalThis, "Buffer", {
+    configurable: true,
+    writable: true,
+    value: class HostBufferShim extends Uint8Array {}
+  });
+
+  try {
+    const { RuntimeBuffer } = await import(`../packages/runtime-node/src/builtins/buffer.js?host-shim=${Date.now()}`);
+
+    assert.equal(typeof RuntimeBuffer.from, "function");
+    assert.equal(typeof RuntimeBuffer.allocUnsafe, "function");
+    assert.equal(typeof RuntimeBuffer.isBuffer, "function");
+    assert.equal(RuntimeBuffer.isBuffer(RuntimeBuffer.from("ok")), true);
+  } finally {
+    if (bufferDescriptor) Object.defineProperty(globalThis, "Buffer", bufferDescriptor);
+    else delete globalThis.Buffer;
+  }
+});
+
 function createTar(files) {
   const chunks = [];
   for (const [name, content] of Object.entries(files)) {

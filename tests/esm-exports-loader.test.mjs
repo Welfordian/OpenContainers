@@ -75,6 +75,29 @@ test("runtime dynamic import strips cache-busting query strings for virtual file
   assert.equal(result.stdout.toString(), "entry\ndone\n");
 });
 
+test("runtime source overrides do not mutate workspace files", async () => {
+  const kernel = new Kernel();
+  kernel.fs.writeFileSync("/workspace/index.js", "1 + 1;\n");
+  kernel.fs.mkdirSync("/workspace/.repl", { recursive: true });
+  kernel.fs.writeFileSync("/workspace/.repl/runtime.mjs", `
+    globalThis.__opencontainersSourceOverrides = {
+      "/workspace/index.js": "await globalThis.__replReturn(1 + 1);\\n"
+    };
+    globalThis.__replReturn = async value => {
+      console.log("return:" + value);
+      return value;
+    };
+    await import("../index.js?run=123");
+    console.log("done");
+  `);
+
+  const result = await kernel.run("node", [".repl/runtime.mjs"], { cwd: "/workspace" });
+
+  assert.equal(result.status, 0, result.stderr.toString());
+  assert.equal(result.stdout.toString(), "return:2\ndone\n");
+  assert.equal(kernel.fs.readFileSync("/workspace/index.js", "utf8"), "1 + 1;\n");
+});
+
 test("runtime accepts empty ESM export markers in server entries", async () => {
   const kernel = new Kernel();
   kernel.fs.writeFileSync("/workspace/index.js", `
@@ -194,6 +217,66 @@ test("package exports resolve root, subpath, pattern, and conditional targets", 
 
   assert.equal(result.status, 0, result.stderr.toString());
   assert.equal(result.stdout.toString(), "require\nfeature-cjs\npattern\n");
+});
+
+test("package imports resolve private # specifiers used by ESM packages", async () => {
+  const kernel = new Kernel({
+    fs: new VirtualFileSystem(),
+    registryClient: new MemoryRegistryClient({
+      "chalk-shaped": {
+        versions: {
+          "1.0.0": {
+            exports: "./source/index.js",
+            imports: {
+              "#ansi-styles": "./source/vendor/ansi-styles.js",
+              "#supports-color": {
+                node: "./source/vendor/supports-color-node.js",
+                default: "./source/vendor/supports-color-browser.js"
+              }
+            },
+            files: {
+              "package.json": JSON.stringify({
+                name: "chalk-shaped",
+                version: "1.0.0",
+                type: "module",
+                exports: "./source/index.js",
+                imports: {
+                  "#ansi-styles": "./source/vendor/ansi-styles.js",
+                  "#supports-color": {
+                    node: "./source/vendor/supports-color-node.js",
+                    default: "./source/vendor/supports-color-browser.js"
+                  }
+                }
+              }),
+              "source/index.js": `
+                import ansiStyles from "#ansi-styles";
+                import supportsColor from "#supports-color";
+                const chalk = { magenta(value) { return ansiStyles.magenta.open + value + ansiStyles.magenta.close + ':' + supportsColor.level; } };
+                export default chalk;
+              `,
+              "source/vendor/ansi-styles.js": "export default { magenta: { open: '<m>', close: '</m>' } };",
+              "source/vendor/supports-color-node.js": "export default { level: 3 };",
+              "source/vendor/supports-color-browser.js": "export default { level: 1 };"
+            }
+          }
+        }
+      }
+    })
+  });
+  kernel.fs.writeFileSync("/workspace/package.json", JSON.stringify({
+    dependencies: { "chalk-shaped": "1.0.0" }
+  }));
+  const install = await kernel.run("npm", ["install"], { cwd: "/workspace" });
+  assert.equal(install.status, 0, install.stderr.toString());
+  kernel.fs.writeFileSync("/workspace/main.js", `
+    import chalk from "chalk-shaped";
+    console.log(chalk.magenta('ok'));
+  `);
+
+  const result = await kernel.run("node", ["main.js"], { cwd: "/workspace" });
+
+  assert.equal(result.status, 0, result.stderr.toString());
+  assert.equal(result.stdout.toString(), "<m>ok</m>:3\n");
 });
 
 async function eventually(predicate, timeoutMs = 500) {

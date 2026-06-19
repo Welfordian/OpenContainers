@@ -33,8 +33,7 @@ export class OpenContainersBuffer extends Uint8Array {
 
   static alloc(size, fill = 0, encoding = "utf8") {
     const buffer = new OpenContainersBuffer(size);
-    if (typeof fill === "string") buffer.#fillString(fill, encoding);
-    else buffer.fill(fill);
+    buffer.fill(fill, 0, size, encoding);
     return buffer;
   }
 
@@ -59,12 +58,20 @@ export class OpenContainersBuffer extends Uint8Array {
     return buffer;
   }
 
+  static compare(left, right) {
+    return OpenContainersBuffer.from(left).compare(right);
+  }
+
   static byteLength(value, encoding) {
     return OpenContainersBuffer.from(value, encoding).byteLength;
   }
 
   static isBuffer(value) {
     return value instanceof Uint8Array;
+  }
+
+  static isEncoding(encoding) {
+    return isKnownEncoding(encoding);
   }
 
   toString(encoding = "utf8", start = 0, end = this.length) {
@@ -92,6 +99,20 @@ export class OpenContainersBuffer extends Uint8Array {
     return Math.max(0, writable);
   }
 
+  fill(value = 0, start = 0, end = this.length, encoding = "utf8") {
+    const rangeStart = normalizeRangeIndex(start, this.length);
+    const rangeEnd = normalizeRangeIndex(end, this.length);
+    if (rangeEnd <= rangeStart) return this;
+
+    if (typeof value === "string" || Array.isArray(value) || value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+      const bytes = OpenContainersBuffer.from(value, encoding);
+      this.#fillBytes(bytes, rangeStart, rangeEnd);
+      return this;
+    }
+
+    return super.fill(Number(value) & 0xff, rangeStart, rangeEnd);
+  }
+
   copy(target, targetStart = 0, sourceStart = 0, sourceEnd = this.length) {
     const slice = this.subarray(sourceStart, sourceEnd);
     const writable = Math.min(slice.length, target.length - targetStart);
@@ -113,6 +134,52 @@ export class OpenContainersBuffer extends Uint8Array {
     }
     if (this.length === bytes.length) return 0;
     return this.length < bytes.length ? -1 : 1;
+  }
+
+  includes(value, byteOffset = 0, encoding) {
+    return this.indexOf(value, byteOffset, encoding) !== -1;
+  }
+
+  indexOf(value, byteOffset = 0, encoding) {
+    const needle = normalizeSearchValue(value, encoding);
+    const start = normalizeSearchOffset(byteOffset, this.length);
+    if (needle.length === 0) return Math.min(start, this.length);
+    for (let index = start; index <= this.length - needle.length; index++) {
+      let matched = true;
+      for (let needleIndex = 0; needleIndex < needle.length; needleIndex++) {
+        if (this[index + needleIndex] !== needle[needleIndex]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) return index;
+    }
+    return -1;
+  }
+
+  lastIndexOf(value, byteOffset = this.length - 1, encoding) {
+    const needle = normalizeSearchValue(value, encoding);
+    let start = normalizeSearchOffset(byteOffset, this.length);
+    if (needle.length === 0) return Math.min(start, this.length);
+    start = Math.min(start, this.length - needle.length);
+    for (let index = start; index >= 0; index--) {
+      let matched = true;
+      for (let needleIndex = 0; needleIndex < needle.length; needleIndex++) {
+        if (this[index + needleIndex] !== needle[needleIndex]) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) return index;
+    }
+    return -1;
+  }
+
+  toJSON() {
+    return {
+      type: "Buffer",
+      data: Array.from(this)
+    };
   }
 
   readUInt8(offset = 0) {
@@ -213,31 +280,398 @@ export class OpenContainersBuffer extends Uint8Array {
     return this.writeUInt32LE(value, offset);
   }
 
-  #fillString(value, encoding) {
-    const bytes = OpenContainersBuffer.from(value, encoding);
+  readUIntBE(offset = 0, byteLength = 0) {
+    const length = normalizeIntegerByteLength(byteLength);
+    checkBounds(this, offset, length);
+    let value = 0;
+    for (let index = 0; index < length; index++) value = value * 0x100 + this[offset + index];
+    return value;
+  }
+
+  readUIntLE(offset = 0, byteLength = 0) {
+    const length = normalizeIntegerByteLength(byteLength);
+    checkBounds(this, offset, length);
+    let value = 0;
+    let multiplier = 1;
+    for (let index = 0; index < length; index++) {
+      value += this[offset + index] * multiplier;
+      multiplier *= 0x100;
+    }
+    return value;
+  }
+
+  writeUIntBE(value, offset = 0, byteLength = 0) {
+    const length = normalizeIntegerByteLength(byteLength);
+    checkBounds(this, offset, length);
+    let current = checkUnsignedInteger(value, length);
+    for (let index = length - 1; index >= 0; index--) {
+      this[offset + index] = current & 0xff;
+      current = Math.floor(current / 0x100);
+    }
+    return offset + length;
+  }
+
+  writeUIntLE(value, offset = 0, byteLength = 0) {
+    const length = normalizeIntegerByteLength(byteLength);
+    checkBounds(this, offset, length);
+    let current = checkUnsignedInteger(value, length);
+    for (let index = 0; index < length; index++) {
+      this[offset + index] = current & 0xff;
+      current = Math.floor(current / 0x100);
+    }
+    return offset + length;
+  }
+
+  readIntBE(offset = 0, byteLength = 0) {
+    const length = normalizeIntegerByteLength(byteLength);
+    const value = this.readUIntBE(offset, length);
+    const sign = 2 ** (8 * length - 1);
+    return value >= sign ? value - (sign * 2) : value;
+  }
+
+  readIntLE(offset = 0, byteLength = 0) {
+    const length = normalizeIntegerByteLength(byteLength);
+    const value = this.readUIntLE(offset, length);
+    const sign = 2 ** (8 * length - 1);
+    return value >= sign ? value - (sign * 2) : value;
+  }
+
+  writeIntBE(value, offset = 0, byteLength = 0) {
+    const length = normalizeIntegerByteLength(byteLength);
+    const current = checkSignedInteger(value, length);
+    return this.writeUIntBE(current < 0 ? current + (2 ** (8 * length)) : current, offset, length);
+  }
+
+  writeIntLE(value, offset = 0, byteLength = 0) {
+    const length = normalizeIntegerByteLength(byteLength);
+    const current = checkSignedInteger(value, length);
+    return this.writeUIntLE(current < 0 ? current + (2 ** (8 * length)) : current, offset, length);
+  }
+
+  readFloatBE(offset = 0) {
+    checkBounds(this, offset, 4);
+    return dataViewFor(this).getFloat32(offset, false);
+  }
+
+  readFloatLE(offset = 0) {
+    checkBounds(this, offset, 4);
+    return dataViewFor(this).getFloat32(offset, true);
+  }
+
+  writeFloatBE(value, offset = 0) {
+    checkBounds(this, offset, 4);
+    dataViewFor(this).setFloat32(offset, Number(value), false);
+    return offset + 4;
+  }
+
+  writeFloatLE(value, offset = 0) {
+    checkBounds(this, offset, 4);
+    dataViewFor(this).setFloat32(offset, Number(value), true);
+    return offset + 4;
+  }
+
+  readDoubleBE(offset = 0) {
+    checkBounds(this, offset, 8);
+    return dataViewFor(this).getFloat64(offset, false);
+  }
+
+  readDoubleLE(offset = 0) {
+    checkBounds(this, offset, 8);
+    return dataViewFor(this).getFloat64(offset, true);
+  }
+
+  writeDoubleBE(value, offset = 0) {
+    checkBounds(this, offset, 8);
+    dataViewFor(this).setFloat64(offset, Number(value), false);
+    return offset + 8;
+  }
+
+  writeDoubleLE(value, offset = 0) {
+    checkBounds(this, offset, 8);
+    dataViewFor(this).setFloat64(offset, Number(value), true);
+    return offset + 8;
+  }
+
+  readBigUInt64BE(offset = 0) {
+    checkBounds(this, offset, 8);
+    return dataViewFor(this).getBigUint64(offset, false);
+  }
+
+  readBigUInt64LE(offset = 0) {
+    checkBounds(this, offset, 8);
+    return dataViewFor(this).getBigUint64(offset, true);
+  }
+
+  readBigUint64BE(offset = 0) {
+    return this.readBigUInt64BE(offset);
+  }
+
+  readBigUint64LE(offset = 0) {
+    return this.readBigUInt64LE(offset);
+  }
+
+  writeBigUInt64BE(value, offset = 0) {
+    checkBounds(this, offset, 8);
+    dataViewFor(this).setBigUint64(offset, checkUnsignedBigInt(value), false);
+    return offset + 8;
+  }
+
+  writeBigUInt64LE(value, offset = 0) {
+    checkBounds(this, offset, 8);
+    dataViewFor(this).setBigUint64(offset, checkUnsignedBigInt(value), true);
+    return offset + 8;
+  }
+
+  writeBigUint64BE(value, offset = 0) {
+    return this.writeBigUInt64BE(value, offset);
+  }
+
+  writeBigUint64LE(value, offset = 0) {
+    return this.writeBigUInt64LE(value, offset);
+  }
+
+  readBigInt64BE(offset = 0) {
+    checkBounds(this, offset, 8);
+    return dataViewFor(this).getBigInt64(offset, false);
+  }
+
+  readBigInt64LE(offset = 0) {
+    checkBounds(this, offset, 8);
+    return dataViewFor(this).getBigInt64(offset, true);
+  }
+
+  writeBigInt64BE(value, offset = 0) {
+    checkBounds(this, offset, 8);
+    dataViewFor(this).setBigInt64(offset, checkSignedBigInt(value), false);
+    return offset + 8;
+  }
+
+  writeBigInt64LE(value, offset = 0) {
+    checkBounds(this, offset, 8);
+    dataViewFor(this).setBigInt64(offset, checkSignedBigInt(value), true);
+    return offset + 8;
+  }
+
+  readUint8(offset = 0) {
+    return this.readUInt8(offset);
+  }
+
+  readUint16BE(offset = 0) {
+    return this.readUInt16BE(offset);
+  }
+
+  readUint16LE(offset = 0) {
+    return this.readUInt16LE(offset);
+  }
+
+  readUint32BE(offset = 0) {
+    return this.readUInt32BE(offset);
+  }
+
+  readUint32LE(offset = 0) {
+    return this.readUInt32LE(offset);
+  }
+
+  readUintBE(offset = 0, byteLength = 0) {
+    return this.readUIntBE(offset, byteLength);
+  }
+
+  readUintLE(offset = 0, byteLength = 0) {
+    return this.readUIntLE(offset, byteLength);
+  }
+
+  writeUint8(value, offset = 0) {
+    return this.writeUInt8(value, offset);
+  }
+
+  writeUint16BE(value, offset = 0) {
+    return this.writeUInt16BE(value, offset);
+  }
+
+  writeUint16LE(value, offset = 0) {
+    return this.writeUInt16LE(value, offset);
+  }
+
+  writeUint32BE(value, offset = 0) {
+    return this.writeUInt32BE(value, offset);
+  }
+
+  writeUint32LE(value, offset = 0) {
+    return this.writeUInt32LE(value, offset);
+  }
+
+  writeUintBE(value, offset = 0, byteLength = 0) {
+    return this.writeUIntBE(value, offset, byteLength);
+  }
+
+  writeUintLE(value, offset = 0, byteLength = 0) {
+    return this.writeUIntLE(value, offset, byteLength);
+  }
+
+  swap16() {
+    return swapBytes(this, 2);
+  }
+
+  swap32() {
+    return swapBytes(this, 4);
+  }
+
+  swap64() {
+    return swapBytes(this, 8);
+  }
+
+  #fillBytes(bytes, start, end) {
     if (!bytes.length) return;
-    for (let offset = 0; offset < this.length; offset += bytes.length) {
-      this.set(bytes.subarray(0, Math.min(bytes.length, this.length - offset)), offset);
+    for (let offset = start; offset < end; offset += bytes.length) {
+      this.set(bytes.subarray(0, Math.min(bytes.length, end - offset)), offset);
     }
   }
 }
 
 OpenContainersBuffer.poolSize = 8192;
 
+const BUFFER_STATIC_METHODS = {
+  from: OpenContainersBuffer.from.bind(OpenContainersBuffer),
+  alloc: OpenContainersBuffer.alloc.bind(OpenContainersBuffer),
+  allocUnsafe: OpenContainersBuffer.allocUnsafe.bind(OpenContainersBuffer),
+  allocUnsafeSlow: OpenContainersBuffer.allocUnsafeSlow.bind(OpenContainersBuffer),
+  concat: OpenContainersBuffer.concat.bind(OpenContainersBuffer),
+  compare: OpenContainersBuffer.compare.bind(OpenContainersBuffer),
+  byteLength: OpenContainersBuffer.byteLength.bind(OpenContainersBuffer),
+  isBuffer: OpenContainersBuffer.isBuffer.bind(OpenContainersBuffer),
+  isEncoding: OpenContainersBuffer.isEncoding.bind(OpenContainersBuffer)
+};
+
+installBufferStatics(OpenContainersBuffer, BUFFER_STATIC_METHODS, { overwrite: true, enumerable: true });
+
 export const RuntimeBuffer = globalThis.Buffer ?? OpenContainersBuffer;
+installBufferStatics(RuntimeBuffer, BUFFER_STATIC_METHODS, {
+  enumerable: RuntimeBuffer === OpenContainersBuffer || typeof globalThis.process?.versions?.node !== "string"
+});
 if (typeof globalThis.Buffer === "undefined") globalThis.Buffer = RuntimeBuffer;
 
-export default {
+export const INSPECT_MAX_BYTES = 50;
+export const kMaxLength = 0x7fffffff;
+export const kStringMaxLength = 0x1fffffe8;
+export const constants = {
+  MAX_LENGTH: kMaxLength,
+  MAX_STRING_LENGTH: kStringMaxLength
+};
+
+const BLOB_CHUNKS = Symbol("opencontainers.blobChunks");
+
+function normalizeBlobParts(parts) {
+  const chunks = [];
+  for (const part of parts) {
+    if (part instanceof ArrayBuffer || ArrayBuffer.isView(part) || Array.isArray(part)) {
+      chunks.push(OpenContainersBuffer.from(part));
+      continue;
+    }
+    if (part instanceof OpenContainersBlobFallback) {
+      chunks.push(...part[BLOB_CHUNKS]);
+      continue;
+    }
+    chunks.push(OpenContainersBuffer.from(String(part)));
+  }
+  return chunks;
+}
+
+class OpenContainersBlobFallback {
+  constructor(parts = [], options = {}) {
+    this[BLOB_CHUNKS] = normalizeBlobParts(parts);
+    this.type = String(options.type ?? "").toLowerCase();
+    this.size = this[BLOB_CHUNKS].reduce((total, part) => total + part.byteLength, 0);
+  }
+
+  async text() {
+    return OpenContainersBuffer.concat(this[BLOB_CHUNKS]).toString();
+  }
+
+  async arrayBuffer() {
+    const bytes = OpenContainersBuffer.concat(this[BLOB_CHUNKS]);
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  }
+
+  slice(start = 0, end = this.size, type = "") {
+    const rangeStart = normalizeRangeIndex(start, this.size);
+    const rangeEnd = normalizeRangeIndex(end, this.size);
+    const bytes = OpenContainersBuffer.concat(this[BLOB_CHUNKS]).subarray(rangeStart, rangeEnd);
+    return new OpenContainersBlobFallback([bytes], { type });
+  }
+
+  stream() {
+    if (typeof ReadableStream !== "function") {
+      throw new Error("ReadableStream is unavailable in this runtime");
+    }
+    const chunks = [...this[BLOB_CHUNKS]];
+    return new ReadableStream({
+      pull(controller) {
+        const chunk = chunks.shift();
+        if (chunk) controller.enqueue(chunk);
+        else controller.close();
+      }
+    });
+  }
+
+}
+
+export const Blob = globalThis.Blob ?? OpenContainersBlobFallback;
+
+export const File = globalThis.File ?? class OpenContainersFile extends Blob {
+  constructor(parts = [], name = "", options = {}) {
+    super(parts, options);
+    this.name = String(name);
+    this.lastModified = Number(options.lastModified ?? Date.now());
+  }
+};
+
+export function atob(value) {
+  return bytesToBinaryString(base64ToBytes(String(value)));
+}
+
+export function btoa(value) {
+  return bytesToBase64(binaryStringToBytes(String(value)));
+}
+
+export function isAscii(input) {
+  return OpenContainersBuffer.from(input).every(byte => byte <= 0x7f);
+}
+
+export function isUtf8(_input) {
+  return true;
+}
+
+export function transcode(source, _fromEncoding, toEncoding) {
+  return RuntimeBuffer.from(RuntimeBuffer.from(source).toString(), toEncoding);
+}
+
+const bufferBuiltin = {
   Buffer: RuntimeBuffer,
+  SlowBuffer: RuntimeBuffer.alloc,
+  Blob,
+  File,
+  atob,
+  btoa,
+  constants,
+  INSPECT_MAX_BYTES,
+  kMaxLength,
+  kStringMaxLength,
+  isAscii,
+  isUtf8,
+  transcode,
   OpenContainersBuffer
 };
+
+bufferBuiltin.default = bufferBuiltin;
+
+export default bufferBuiltin;
 
 function bytesToBase64(bytes) {
   let binary = "";
   for (let index = 0; index < bytes.length; index += 0x8000) {
     binary += String.fromCharCode(...bytes.slice(index, index + 0x8000));
   }
-  if (typeof btoa === "function") return btoa(binary);
+  if (typeof globalThis.btoa === "function") return globalThis.btoa(binary);
   if (globalThis.Buffer && globalThis.Buffer !== OpenContainersBuffer) {
     return globalThis.Buffer.from(bytes).toString("base64");
   }
@@ -246,8 +680,8 @@ function bytesToBase64(bytes) {
 
 function base64ToBytes(value) {
   const normalized = String(value).replace(/\s+/g, "");
-  if (typeof atob === "function") {
-    const binary = atob(normalized);
+  if (typeof globalThis.atob === "function") {
+    const binary = globalThis.atob(normalized);
     const bytes = new OpenContainersBuffer(binary.length);
     for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
     return bytes;
@@ -258,6 +692,20 @@ function base64ToBytes(value) {
   throw new Error("base64 decoding is unavailable in this runtime");
 }
 
+function bytesToBinaryString(bytes) {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.slice(index, index + 0x8000));
+  }
+  return binary;
+}
+
+function binaryStringToBytes(value) {
+  const bytes = new OpenContainersBuffer(value.length);
+  for (let index = 0; index < value.length; index++) bytes[index] = value.charCodeAt(index) & 0xff;
+  return bytes;
+}
+
 function normalizeEncoding(encoding = "utf8") {
   const value = String(encoding || "utf8").toLowerCase().replace(/[-_]/g, "");
   if (value === "utf8" || value === "utf") return "utf8";
@@ -266,4 +714,123 @@ function normalizeEncoding(encoding = "utf8") {
   if (value === "base64" || value === "base64url") return "base64";
   if (value === "hex") return "hex";
   return "utf8";
+}
+
+function isKnownEncoding(encoding) {
+  const value = String(encoding || "").toLowerCase().replace(/[-_]/g, "");
+  return ["utf8", "utf", "ucs2", "utf16le", "ascii", "binary", "latin1", "base64", "base64url", "hex"].includes(value);
+}
+
+function normalizeSearchValue(value, encoding) {
+  if (typeof value === "number") return OpenContainersBuffer.from([value & 0xff]);
+  return OpenContainersBuffer.from(value, encoding);
+}
+
+function normalizeSearchOffset(offset, length) {
+  const value = Number(offset);
+  if (!Number.isFinite(value)) return value < 0 ? 0 : length;
+  if (value < 0) return Math.max(0, length + Math.trunc(value));
+  return Math.min(Math.trunc(value), length);
+}
+
+function normalizeRangeIndex(offset, length) {
+  const value = Number(offset);
+  if (!Number.isFinite(value)) return value < 0 ? 0 : length;
+  if (value < 0) return Math.max(0, length + Math.trunc(value));
+  return Math.min(Math.max(0, Math.trunc(value)), length);
+}
+
+function normalizeIntegerByteLength(byteLength) {
+  const length = Number(byteLength);
+  if (!Number.isInteger(length) || length < 1 || length > 6) {
+    throw new RangeError("byteLength must be an integer between 1 and 6");
+  }
+  return length;
+}
+
+function checkBounds(buffer, offset, byteLength) {
+  const normalizedOffset = Number(offset);
+  if (!Number.isInteger(normalizedOffset) || normalizedOffset < 0 || normalizedOffset + byteLength > buffer.length) {
+    throw new RangeError("Index out of range");
+  }
+}
+
+function checkUnsignedInteger(value, byteLength) {
+  const number = Number(value);
+  const max = 2 ** (8 * byteLength);
+  if (!Number.isInteger(number) || number < 0 || number >= max) {
+    throw new RangeError(`value must be >= 0 and < ${max}`);
+  }
+  return number;
+}
+
+function checkSignedInteger(value, byteLength) {
+  const number = Number(value);
+  const limit = 2 ** (8 * byteLength - 1);
+  if (!Number.isInteger(number) || number < -limit || number >= limit) {
+    throw new RangeError(`value must be >= ${-limit} and < ${limit}`);
+  }
+  return number;
+}
+
+function checkUnsignedBigInt(value) {
+  const bigint = BigInt(value);
+  const max = (1n << 64n) - 1n;
+  if (bigint < 0n || bigint > max) {
+    throw new RangeError(`value must be >= 0n and <= ${max}n`);
+  }
+  return bigint;
+}
+
+function checkSignedBigInt(value) {
+  const bigint = BigInt(value);
+  const min = -(1n << 63n);
+  const max = (1n << 63n) - 1n;
+  if (bigint < min || bigint > max) {
+    throw new RangeError(`value must be >= ${min}n and <= ${max}n`);
+  }
+  return bigint;
+}
+
+function dataViewFor(buffer) {
+  return new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
+function swapBytes(buffer, size) {
+  if (buffer.length % size !== 0) {
+    throw new RangeError(`Buffer size must be a multiple of ${size}`);
+  }
+  for (let offset = 0; offset < buffer.length; offset += size) {
+    for (let index = 0; index < size / 2; index++) {
+      const left = offset + index;
+      const right = offset + size - index - 1;
+      const value = buffer[left];
+      buffer[left] = buffer[right];
+      buffer[right] = value;
+    }
+  }
+  return buffer;
+}
+
+function installBufferStatics(target, methods, { overwrite = false, enumerable = false } = {}) {
+  for (const [method, implementation] of Object.entries(methods)) {
+    const current = target?.[method];
+    if (overwrite || typeof current !== "function") {
+      Object.defineProperty(target, method, {
+        configurable: true,
+        enumerable: true,
+        writable: true,
+        value: implementation
+      });
+      continue;
+    }
+
+    if (!enumerable) continue;
+    const descriptor = Object.getOwnPropertyDescriptor(target, method);
+    if (!descriptor || descriptor.enumerable || descriptor.configurable === false) continue;
+    Object.defineProperty(target, method, {
+      ...descriptor,
+      enumerable: true
+    });
+  }
 }

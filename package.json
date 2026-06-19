@@ -1,6 +1,6 @@
 {
   "name": "opencontainers",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "type": "module",
   "description": "Clean-room browser-native Node-like runtime foundation for OpenContainers.",
   "repository": {

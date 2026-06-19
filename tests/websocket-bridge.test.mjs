@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Kernel } from "../packages/kernel/src/Kernel.js";
 import { KernelWorkerHost } from "../packages/kernel/src/kernel-worker-host.js";
+import { MemoryRegistryClient } from "../packages/npm/src/registry-client.js";
 import { createParentBridge, installPreviewClient, mapPreviewRequestUrl, mapPreviewWebSocketRequest } from "../packages/preview-client/src/index.js";
 
 test("virtual http upgrade handlers can exchange WebSocket messages through the kernel", async () => {
@@ -53,7 +54,10 @@ test("virtual WebSocket upgrade handler errors stay inside the server process", 
 
 test("KernelWorkerHost exposes virtual WebSocket connect/send/close messages", async () => {
   const messages = [];
-  const host = new KernelWorkerHost({ postMessage: (message) => messages.push(message) });
+  const host = new KernelWorkerHost({
+    postMessage: (message) => messages.push(message),
+    registryClient: new MemoryRegistryClient({})
+  });
   await host.handleMessage({ id: "init", type: "initProject", payload: { projectId: "demo" } });
   await host.handleMessage({
     id: "server",

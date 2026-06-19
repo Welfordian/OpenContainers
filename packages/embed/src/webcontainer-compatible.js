@@ -409,6 +409,7 @@ class OpenContainerProcess {
     this.container = container;
     this.process = process;
     this.output = this.#createOutputStream();
+    this.input = this.#createInputStream();
     this.exit = process.completed.then((result) => result.status);
   }
 
@@ -430,6 +431,15 @@ class OpenContainerProcess {
           process.stderr.off?.("data", onData);
           controller.close();
         });
+      }
+    });
+  }
+
+  #createInputStream() {
+    const process = this.process;
+    return new WritableStream({
+      write(chunk) {
+        process.stdin.write(chunk);
       }
     });
   }

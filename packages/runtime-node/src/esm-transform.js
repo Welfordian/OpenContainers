@@ -4,25 +4,25 @@ export function transformEsmToCjs(source, { filename }) {
   transformed = transformed.replace(/\bimport\s*\(([^)]+)\)/g, (_match, specifierExpression) => `__opencontainersDynamicImport(${specifierExpression})`);
 
   transformed = transformed.replace(/^\s*import\s+["']([^"']+)["'];?\s*$/gm, (_match, specifier) => {
-    return `require(${JSON.stringify(specifier)});`;
+    return `__opencontainersRequire(${JSON.stringify(specifier)});`;
   });
 
   transformed = transformed.replace(/^\s*import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, name, specifier) => {
-    return `const ${name} = require(${JSON.stringify(specifier)});`;
+    return `const ${name} = __opencontainersRequire(${JSON.stringify(specifier)});`;
   });
 
   transformed = transformed.replace(/^\s*import\s+{([^}]+)}\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, imports, specifier) => {
-    return `const { ${normalizeImportBindings(imports)} } = require(${JSON.stringify(specifier)});`;
+    return `const { ${normalizeImportBindings(imports)} } = __opencontainersRequire(${JSON.stringify(specifier)});`;
   });
 
   transformed = transformed.replace(/^\s*import\s+([A-Za-z_$][\w$]*)\s*,\s*{([^}]+)}\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, defaultName, imports, specifier) => {
     const temp = `__opencontainers_import_${defaultName}`;
-    return `const ${temp} = require(${JSON.stringify(specifier)});\nconst ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp}.default ?? ${temp});\nconst { ${normalizeImportBindings(imports)} } = ${temp};`;
+    return `const ${temp} = __opencontainersRequire(${JSON.stringify(specifier)});\nconst ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp}.default ?? ${temp});\nconst { ${normalizeImportBindings(imports)} } = ${temp};`;
   });
 
   transformed = transformed.replace(/^\s*import\s+([A-Za-z_$][\w$]*)\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, defaultName, specifier) => {
     const temp = `__opencontainers_import_${defaultName}`;
-    return `const ${temp} = require(${JSON.stringify(specifier)});\nconst ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp}.default ?? ${temp});`;
+    return `const ${temp} = __opencontainersRequire(${JSON.stringify(specifier)});\nconst ${defaultName} = ${temp} && ${temp}.__esModule ? ${temp}.default : (${temp}.default ?? ${temp});`;
   });
 
   transformed = transformed.replace(/(^|[;\n])(\s*)export\s+default\s+function\s*([A-Za-z_$][\w$]*)?\s*\(/g, (_match, prefix, indent, name) => {
@@ -65,12 +65,12 @@ export function transformEsmToCjs(source, { filename }) {
 
   transformed = transformed.replace(/^\s*export\s+{([^}]*)}\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, exportsList, specifier) => {
     const temp = `__opencontainers_reexport_${Math.random().toString(16).slice(2)}`;
-    return `const ${temp} = require(${JSON.stringify(specifier)});\n${normalizeExportList(exportsList).map(({ local, exported }) => `exports[${JSON.stringify(exported)}] = ${temp}[${JSON.stringify(local)}];`).join("\n")}`;
+    return `const ${temp} = __opencontainersRequire(${JSON.stringify(specifier)});\n${normalizeExportList(exportsList).map(({ local, exported }) => `exports[${JSON.stringify(exported)}] = ${temp}[${JSON.stringify(local)}];`).join("\n")}`;
   });
 
   transformed = transformed.replace(/^\s*export\s+\*\s+from\s+["']([^"']+)["'];?\s*$/gm, (_match, specifier) => {
     const temp = `__opencontainers_reexport_all_${Math.random().toString(16).slice(2)}`;
-    return `const ${temp} = require(${JSON.stringify(specifier)});\nfor (const key of Object.keys(${temp})) if (key !== 'default' && key !== '__esModule') exports[key] = ${temp}[key];`;
+    return `const ${temp} = __opencontainersRequire(${JSON.stringify(specifier)});\nfor (const key of Object.keys(${temp})) if (key !== 'default' && key !== '__esModule') exports[key] = ${temp}[key];`;
   });
 
   transformed = transformed.replace(/^\s*export\s+{([^}]*)};?\s*$/gm, (_match, exportsList) => {

@@ -6,7 +6,8 @@ export class VirtualProcess extends EventEmitter {
     super();
     this.pid = descriptor.pid;
     this.descriptor = descriptor;
-    this.stdin = new OutputStream();
+    this.stdin = descriptor.stdin ?? new OutputStream();
+    descriptor.stdin = this.stdin;
     this.stdout = descriptor.stdout;
     this.stderr = descriptor.stderr;
     this.exitCode = null;

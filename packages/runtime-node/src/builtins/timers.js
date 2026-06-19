@@ -1,20 +1,20 @@
 let nextTimerId = 1;
 
-export function createTimerApi({ process } = {}) {
+export function createTimerApi({ process, asyncContextManager } = {}) {
   const setTimeoutCompat = (callback, delay = 0, ...args) => {
-    const handle = new OpenContainersTimerHandle({ kind: "timeout", process, callback, args, delay });
+    const handle = new OpenContainersTimerHandle({ kind: "timeout", process, asyncContextManager, callback, args, delay });
     handle.start();
     return handle;
   };
 
   const setIntervalCompat = (callback, delay = 0, ...args) => {
-    const handle = new OpenContainersTimerHandle({ kind: "interval", process, callback, args, delay, repeat: true });
+    const handle = new OpenContainersTimerHandle({ kind: "interval", process, asyncContextManager, callback, args, delay, repeat: true });
     handle.start();
     return handle;
   };
 
   const setImmediateCompat = (callback, ...args) => {
-    const handle = new OpenContainersTimerHandle({ kind: "immediate", process, callback, args, delay: 0 });
+    const handle = new OpenContainersTimerHandle({ kind: "immediate", process, asyncContextManager, callback, args, delay: 0 });
     handle.start();
     return handle;
   };
@@ -57,9 +57,11 @@ export function createTimerApi({ process } = {}) {
 }
 
 class OpenContainersTimerHandle {
-  constructor({ kind, process, callback, args = [], delay = 0, repeat = false }) {
+  constructor({ kind, process, asyncContextManager, callback, args = [], delay = 0, repeat = false }) {
     this.kind = kind;
     this.process = process;
+    this.asyncContextManager = asyncContextManager;
+    this.asyncContext = asyncContextManager?.snapshot();
     this.callback = typeof callback === "function" ? callback : () => {};
     this.args = args;
     this.delay = Number(delay) || 0;
@@ -91,7 +93,17 @@ class OpenContainersTimerHandle {
     }
     this.refreshedDuringCallback = false;
     try {
-      this.callback(...this.args);
+      const run = () => this.callback(...this.args);
+      const result = this.asyncContextManager
+        ? this.asyncContextManager.runWithContext(this.asyncContext, run)
+        : run();
+      if (result && typeof result.catch === "function") {
+        result.catch((error) => {
+          this.process?.stderr?.write?.(`${error?.stack ?? error?.message ?? error}\n`);
+          this.process.exitCode = 1;
+          this.close();
+        });
+      }
     } catch (error) {
       this.process?.stderr?.write?.(`${error?.stack ?? error?.message ?? error}\n`);
       this.process.exitCode = 1;

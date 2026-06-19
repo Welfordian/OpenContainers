@@ -1,12 +1,47 @@
+import { NpmBootstrapper } from "./npm-bootstrapper.js";
 import { NpmInstaller } from "./installer.js";
+import { MemoryRegistryClient, RegistryClient } from "./registry-client.js";
 
 export class NpmCommand {
-  constructor({ kernel, registryClient }) {
+  constructor({ kernel, registryClient = new RegistryClient() }) {
     this.kernel = kernel;
-    this.installer = new NpmInstaller({ kernel, registryClient });
+    this.registryClient = registryClient;
+    this.bootstrapper = new NpmBootstrapper({ kernel, registryClient });
+    this.legacyInstaller = new NpmInstaller({ kernel, registryClient });
   }
 
-  async run(args, descriptor) {
+  async run(args, descriptor, { command = "npm" } = {}) {
+    if (this.registryClient instanceof MemoryRegistryClient) {
+      return this.#runLegacy(command === "npx" ? ["exec", ...args] : args, descriptor);
+    }
+
+    const entrypoints = await this.bootstrapper.ensure();
+    const cliPath = command === "npx" ? entrypoints.npxRunner : entrypoints.npmRunner;
+    const child = this.kernel.spawn("node", [cliPath, ...args], {
+      cwd: descriptor.cwd,
+      env: {
+        ...descriptor.env,
+        INIT_CWD: descriptor.cwd,
+        npm_execpath: entrypoints.npmCli,
+        npm_node_execpath: "/bin/node",
+        npm_config_cache: descriptor.env.npm_config_cache ?? "/home/opencontainers/.npm",
+        npm_config_audit: descriptor.env.npm_config_audit ?? "false",
+        npm_config_fund: descriptor.env.npm_config_fund ?? "false",
+        npm_config_update_notifier: descriptor.env.npm_config_update_notifier ?? "false",
+        OPENCONTAINERS_NPM_CLI: "1"
+      },
+      projectId: descriptor.projectId,
+      parentPid: descriptor.pid,
+      externalNetworkAllowlist: ["registry.npmjs.org"]
+    });
+
+    child.stdout.on("data", (chunk) => descriptor.stdout.write(chunk));
+    child.stderr.on("data", (chunk) => descriptor.stderr.write(chunk));
+    const result = await child.completed;
+    return result.status;
+  }
+
+  async #runLegacy(args, descriptor) {
     const [command = "--version", ...rest] = args;
     if (command === "--version" || command === "-v") {
       descriptor.stdout.write("opencontainers-npm/0.1.0\n");
@@ -15,7 +50,7 @@ export class NpmCommand {
     if (command === "install" || command === "i") {
       const saveDev = rest.includes("--save-dev") || rest.includes("-D");
       const packages = rest.filter((arg) => !arg.startsWith("-"));
-      await this.installer.install({ cwd: descriptor.cwd, packages, saveDev, descriptor });
+      await this.legacyInstaller.install({ cwd: descriptor.cwd, packages, saveDev, descriptor });
       descriptor.stdout.write("installed\n");
       return 0;
     }

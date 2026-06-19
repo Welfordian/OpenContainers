@@ -1,6 +1,7 @@
 import { VirtualFileSystem } from "../../fs/src/VirtualFileSystem.js";
 import { resolvePath } from "../../fs/src/path-utils.js";
 import { NpmCommand } from "../../npm/src/npm-command.js";
+import { registerDefaultCommandBuiltins } from "../../shell/src/commands.js";
 import { ShellRunner } from "../../shell/src/runner.js";
 import { NetManager } from "./NetManager.js";
 import { PortManager } from "./PortManager.js";
@@ -10,9 +11,23 @@ import { SyscallRouter } from "./SyscallRouter.js";
 import { WebSocketManager } from "./WebSocketManager.js";
 
 export class Kernel {
-  constructor({ fs = new VirtualFileSystem(), registryClient, allowInstallScripts = false, processWorkerFactory, processWorkerBackend } = {}) {
+  constructor({
+    fs = new VirtualFileSystem(),
+    registryClient,
+    allowExternalNetwork = false,
+    allowInstallScripts = false,
+    allowChildProcesses = true,
+    allowPersistentStorage = true,
+    allowPopups = false,
+    processWorkerFactory,
+    processWorkerBackend
+  } = {}) {
     this.fs = fs;
+    this.allowExternalNetwork = allowExternalNetwork;
     this.allowInstallScripts = allowInstallScripts;
+    this.allowChildProcesses = allowChildProcesses;
+    this.allowPersistentStorage = allowPersistentStorage;
+    this.allowPopups = allowPopups;
     this.commandBuiltins = new Map();
     this.portManager = new PortManager();
     this.net = new NetManager();
@@ -26,14 +41,7 @@ export class Kernel {
   }
 
   registerDefaultBuiltins() {
-    this.commandBuiltins.set("pwd", async (_args, descriptor) => {
-      descriptor.stdout.write(`${descriptor.cwd}\n`);
-      return 0;
-    });
-    this.commandBuiltins.set("echo", async (args, descriptor) => {
-      descriptor.stdout.write(`${args.join(" ")}\n`);
-      return 0;
-    });
+    registerDefaultCommandBuiltins(this);
   }
 
   resolvePath(cwd, path) {

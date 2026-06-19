@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { KernelWorkerHost } from "../packages/kernel/src/kernel-worker-host.js";
+import { MemoryRegistryClient } from "../packages/npm/src/registry-client.js";
+
+function createHost(messages) {
+  return new KernelWorkerHost({
+    postMessage: (message) => messages.push(message),
+    registryClient: new MemoryRegistryClient({})
+  });
+}
 
 test("KernelWorkerHost initializes projects, edits files, and runs commands", async () => {
   const messages = [];
-  const host = new KernelWorkerHost({ postMessage: (message) => messages.push(message) });
+  const host = createHost(messages);
 
   await host.handleMessage({ id: "init", type: "initProject", payload: { projectId: "demo" } });
   assert.equal(messages.at(-1).payload.ok, true);
@@ -33,7 +41,7 @@ test("KernelWorkerHost initializes projects, edits files, and runs commands", as
 
 test("KernelWorkerHost detached dev command leaves virtual HTTP server reachable", async () => {
   const messages = [];
-  const host = new KernelWorkerHost({ postMessage: (message) => messages.push(message) });
+  const host = createHost(messages);
   await host.handleMessage({ id: "init", type: "initProject", payload: { projectId: "demo" } });
   await host.handleMessage({
     id: "run",
@@ -63,7 +71,7 @@ test("KernelWorkerHost detached dev command leaves virtual HTTP server reachable
 
 test("KernelWorkerHost detects non-default preview ports", async () => {
   const messages = [];
-  const host = new KernelWorkerHost({ postMessage: (message) => messages.push(message) });
+  const host = createHost(messages);
   await host.handleMessage({ id: "init", type: "initProject", payload: { projectId: "demo" } });
   await host.handleMessage({
     id: "write",
@@ -107,7 +115,7 @@ test("KernelWorkerHost detects non-default preview ports", async () => {
 
 test("KernelWorkerHost treats terminal-only scripts as valid no-preview runs", async () => {
   const messages = [];
-  const host = new KernelWorkerHost({ postMessage: (message) => messages.push(message) });
+  const host = createHost(messages);
   await host.handleMessage({ id: "init", type: "initProject", payload: { projectId: "demo" } });
   await host.handleMessage({
     id: "write",

@@ -1,8 +1,35 @@
 import { resolvePath } from "../../fs/src/path-utils.js";
 import { NodeRuntime } from "../../runtime-node/src/NodeRuntime.js";
+import { runCommandBuiltin, runCommandBuiltinSync } from "../../shell/src/commands.js";
 import { OutputStream } from "./OutputStream.js";
 import { ProcessWorkerBackend } from "./ProcessWorkerBackend.js";
 import { VirtualProcess } from "./VirtualProcess.js";
+
+function normalizeEnv(env = {}) {
+  return Object.fromEntries(
+    Object.entries(env)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([key, value]) => [key, String(value)])
+  );
+}
+
+function defaultEnv({ cwd, projectId }) {
+  const pathEntries = [...new Set([
+    `${cwd}/node_modules/.bin`,
+    "/workspace/node_modules/.bin",
+    "/bin",
+    "/usr/bin"
+  ])];
+
+  return {
+    HOME: "/home/opencontainers",
+    PATH: pathEntries.join(":"),
+    PWD: cwd,
+    SHELL: "/bin/sh",
+    TERM: "xterm-256color",
+    OPENCONTAINERS_PROJECT_ID: projectId
+  };
+}
 
 export class ProcessManager {
   constructor({ kernel, processWorkerBackend, processWorkerFactory }) {
@@ -40,17 +67,24 @@ export class ProcessManager {
   }
 
   createDescriptor(command, args = [], options = {}) {
+    const cwd = options.cwd ?? "/workspace";
+    const projectId = options.projectId ?? "default";
     const descriptor = {
       pid: this.nextPid++,
       ppid: options.parentPid,
-      cwd: options.cwd ?? "/workspace",
+      cwd,
       argv: [command, ...args],
-      env: { ...(options.env ?? {}) },
+      env: {
+        ...defaultEnv({ cwd, projectId }),
+        ...normalizeEnv(options.env)
+      },
       status: "starting",
       stdin: new OutputStream(),
       stdout: new OutputStream(),
       stderr: new OutputStream(),
-      projectId: options.projectId ?? "default"
+      projectId,
+      terminal: options.terminal,
+      externalNetworkAllowlist: [...(options.externalNetworkAllowlist ?? [])].map((host) => String(host).toLowerCase())
     };
     descriptor.env.OPENCONTAINERS_PROJECT_ID ??= descriptor.projectId;
     return descriptor;
@@ -59,7 +93,7 @@ export class ProcessManager {
   async #run(process, command, args) {
     process.descriptor.status = "running";
     try {
-      const resolved = this.resolveCommand(command, process.descriptor.cwd);
+      const resolved = this.resolveCommand(command, process.descriptor.cwd, process.descriptor.env);
       let status;
       if (resolved.type === "node" && this.processWorkerBackend && !process.descriptor.env.OPENCONTAINERS_DISABLE_PROCESS_WORKERS) {
         status = await this.processWorkerBackend.run(process, args);
@@ -70,7 +104,7 @@ export class ProcessManager {
       } else if (resolved.type === "node-bin") {
         status = await new NodeRuntime({ kernel: this.kernel, descriptor: process.descriptor }).execute([resolved.target, ...args]);
       } else if (resolved.type === "npm") {
-        status = await this.kernel.npmCommand.run(args, process.descriptor);
+        status = await this.kernel.npmCommand.run(args, process.descriptor, { command });
       } else if (resolved.type === "shell") {
         const commandLine = args[0] === "-c" ? args.slice(1).join(" ") : args.join(" ");
         status = await this.kernel.shell.run(commandLine, {
@@ -82,7 +116,15 @@ export class ProcessManager {
           parentPid: process.pid
         });
       } else if (resolved.type === "builtin") {
-        status = await resolved.run(args, process.descriptor);
+        const result = await runCommandBuiltin(resolved.definition, args, {
+          kernel: this.kernel,
+          descriptor: process.descriptor
+        });
+        status = result.status;
+        if (result.cwd) {
+          process.descriptor.cwd = result.cwd;
+          process.descriptor.env.PWD = result.cwd;
+        }
       } else {
         throw Object.assign(new Error(`Unsupported command: ${command}`), { code: "ENOENT" });
       }
@@ -108,7 +150,7 @@ export class ProcessManager {
 
   #runSync(process, command, args) {
     process.descriptor.status = "running";
-    const resolved = this.resolveCommand(command, process.descriptor.cwd);
+    const resolved = this.resolveCommand(command, process.descriptor.cwd, process.descriptor.env);
     if (resolved.type === "node") {
       return new NodeRuntime({ kernel: this.kernel, descriptor: process.descriptor }).executeSync(args);
     }
@@ -127,34 +169,91 @@ export class ProcessManager {
       });
     }
     if (resolved.type === "builtin") {
-      const result = resolved.run(args, process.descriptor);
-      if (result && typeof result.then === "function") {
-        throw Object.assign(new Error(`Command ${command} cannot run synchronously`), {
-          code: "ERR_OPENCONTAINERS_SYNC_COMMAND_UNSUPPORTED"
-        });
+      const result = runCommandBuiltinSync(resolved.definition, args, {
+        kernel: this.kernel,
+        descriptor: process.descriptor
+      });
+      if (result.cwd) {
+        process.descriptor.cwd = result.cwd;
+        process.descriptor.env.PWD = result.cwd;
       }
-      return result ?? 0;
+      return result.status;
     }
     throw Object.assign(new Error(`Unsupported sync command: ${command}`), { code: "ENOENT" });
   }
 
-  resolveCommand(command, cwd) {
+  resolveCommand(command, cwd, env = {}) {
     if (command === "node") return { type: "node" };
-    if (command === "npm" || command === "npx") return { type: "npm" };
+    if (command === "npm" || command === "npx") return { type: "npm", command };
     if (command === "sh") return { type: "shell" };
-    const shimPath = resolvePath(cwd, `node_modules/.bin/${command}`);
-    if (this.kernel.fs.existsSync(shimPath)) {
-      const shim = JSON.parse(this.kernel.fs.readFileSync(shimPath, "utf8"));
-      if (shim.type === "node-bin") return shim;
+
+    for (const candidate of this.#commandCandidates(command, cwd, env)) {
+      const resolved = this.#resolveExecutable(candidate);
+      if (resolved) return resolved;
     }
-    const binPath = `/workspace/node_modules/.bin/${command}`;
-    if (this.kernel.fs.existsSync(binPath)) {
-      const shim = JSON.parse(this.kernel.fs.readFileSync(binPath, "utf8"));
-      if (shim.type === "node-bin") return shim;
-    }
+
     const builtin = this.kernel.commandBuiltins.get(command);
-    if (builtin) return { type: "builtin", run: builtin };
+    if (builtin) return { type: "builtin", definition: builtin };
     return { type: "unknown" };
+  }
+
+  #commandCandidates(command, cwd, env) {
+    const candidates = [];
+    const add = (path) => {
+      if (!path || candidates.includes(path)) return;
+      candidates.push(path);
+    };
+
+    if (String(command).includes("/")) {
+      add(resolvePath(cwd, command));
+      return candidates;
+    }
+
+    for (const pathEntry of String(env.PATH || "").split(":")) {
+      if (pathEntry) add(resolvePath(cwd, `${pathEntry}/${command}`));
+    }
+
+    add(resolvePath(cwd, `node_modules/.bin/${command}`));
+    add(`/workspace/node_modules/.bin/${command}`);
+    return candidates;
+  }
+
+  #resolveExecutable(path) {
+    if (!this.kernel.fs.existsSync(path)) return null;
+
+    let source = "";
+    try {
+      source = this.kernel.fs.readFileSync(path, "utf8");
+    } catch {
+      return null;
+    }
+
+    const trimmed = source.trimStart();
+    if (trimmed.startsWith("{")) {
+      try {
+        const shim = JSON.parse(source);
+        if (shim.type === "node-bin" && shim.target) return shim;
+      } catch {
+        // Real npm bins are usually shell scripts or JS hashbang files.
+      }
+    }
+
+    const target = this.#realpath(path);
+    const firstLine = source.split(/\r?\n/, 1)[0] ?? "";
+    if (firstLine.startsWith("#!") && /\bnode(?:\s|$)/.test(firstLine)) {
+      return { type: "node-bin", target };
+    }
+    if (/\.(?:[cm]?js)$/i.test(target)) return { type: "node-bin", target };
+
+    return null;
+  }
+
+  #realpath(path) {
+    try {
+      return this.kernel.fs.realpathSync(path);
+    } catch {
+      return path;
+    }
   }
 
   kill(pid, signal) {

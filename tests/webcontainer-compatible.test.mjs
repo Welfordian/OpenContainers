@@ -30,6 +30,43 @@ test("OpenContainer facade runs node processes with WebContainer-like output", a
   assert.equal(output.trim(), "facade");
 });
 
+test("OpenContainer facade exposes process input for readline prompts", async () => {
+  const container = await OpenContainer.boot({ registerServiceWorker: false });
+  await container.mount({
+    "name.js": {
+      file: {
+        contents: `
+          import readline from "node:readline/promises";
+          import { stdin as input, stdout as output } from "node:process";
+
+          const rl = readline.createInterface({ input, output });
+          const name = await rl.question("name? ");
+          console.log("answer:" + name);
+          rl.close();
+        `
+      }
+    }
+  });
+
+  const process = await container.spawn("node", ["name.js"]);
+  const writer = process.input.getWriter();
+  let answered = false;
+  let output = "";
+
+  await process.output.pipeTo(new WritableStream({
+    write(chunk) {
+      output += String(chunk);
+      if (!answered && output.includes("name? ")) {
+        answered = true;
+        writer.write("Josh\n");
+      }
+    }
+  }));
+
+  assert.equal(await process.exit, 0);
+  assert.equal(output, "name? answer:Josh\n");
+});
+
 test("OpenContainer facade runs REPL-shaped top-level-await modules", async () => {
   const container = await OpenContainer.boot({ registerServiceWorker: false });
   await container.mount({
@@ -78,6 +115,37 @@ test("OpenContainer facade exposes process.versions.v8", async () => {
   const process = await container.spawn("node", ["index.js"]);
   assert.equal((await readStream(process.output)).trim(), "14.3.127.18-node.10");
   assert.equal(await process.exit, 0);
+});
+
+test("OpenContainer facade does not expose host browser globals to user code", async () => {
+  const previousAlert = globalThis.alert;
+  globalThis.alert = () => {
+    throw new Error("host alert should not be called");
+  };
+
+  try {
+    const container = await OpenContainer.boot({ registerServiceWorker: false });
+    await container.mount({
+      "index.js": {
+        file: {
+          contents: `
+            console.log(typeof alert);
+            console.log(String(globalThis.alert));
+            try { alert('hi'); } catch (error) { console.log(error.name + ':' + error.message); }
+          `
+        }
+      }
+    });
+
+    const process = await container.spawn("node", ["index.js"]);
+    const output = await readStream(process.output);
+
+    assert.equal(await process.exit, 0);
+    assert.match(output, /^undefined\nundefined\nTypeError:alert is not a function\n?$/);
+  } finally {
+    if (previousAlert === undefined) delete globalThis.alert;
+    else globalThis.alert = previousAlert;
+  }
 });
 
 test("OpenContainer facade emits server-ready for detected ports and dispatches preview requests", async () => {
@@ -211,6 +279,39 @@ test("OpenContainer facade contains process startup errors in process output", a
   first.kill();
   assert.equal(await first.exit, 143);
   assert.deepEqual(container.kernel.listeningPorts("repl"), []);
+});
+
+test("OpenContainer facade supports Express-style response helpers", async () => {
+  const container = await OpenContainer.boot({ projectId: "repl", registerServiceWorker: false });
+  await container.mount({
+    "server.js": {
+      file: {
+        contents: `
+          const http = require('http');
+          http.createServer((req, res) => {
+            req.unpipe();
+            res.end(String(Buffer.isBuffer(Buffer.from('ok'))) + ':' + typeof Buffer.allocUnsafe);
+          }).listen(3000);
+        `
+      }
+    }
+  });
+
+  const ready = onceServerReady(container);
+  const process = await container.spawn("node", ["server.js"]);
+  const event = await ready;
+
+  const response = await container.dispatchPreviewRequest({
+    url: event.url,
+    method: "GET",
+    headers: []
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body, "true:function");
+
+  process.kill();
+  assert.equal(await process.exit, 143);
 });
 
 test("OpenContainer facade waits for Service Worker control before connecting previews", async () => {

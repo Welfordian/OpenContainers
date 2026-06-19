@@ -1,5 +1,6 @@
-import { dirname, resolvePath } from "../../fs/src/path-utils.js";
-import { parsePipeline, parseSimpleCommand, splitCommands } from "./parser.js";
+import { dirname, resolveShellPath } from "../../fs/src/path-utils.js";
+import { runCommandBuiltin, runCommandBuiltinSync } from "./commands.js";
+import { parsePipeline, splitCommands } from "./parser.js";
 
 export class ShellRunner {
   constructor({ kernel }) {
@@ -68,8 +69,19 @@ export class ShellRunner {
   }
 
   async runCommand(command, args, options) {
-    const builtin = this.shellBuiltin(command);
-    if (builtin) return builtin(args, options);
+    const builtin = this.kernel.commandBuiltins.get(command);
+    if (builtin) {
+      return runCommandBuiltin(builtin, args, {
+        kernel: this.kernel,
+        cwd: options.cwd,
+        env: options.env,
+        stdin: options.stdin,
+        stdout: options.stdout,
+        stderr: options.stderr,
+        projectId: options.projectId,
+        parentPid: options.parentPid
+      });
+    }
 
     const child = this.kernel.spawn(command, args, {
       cwd: options.cwd,
@@ -144,9 +156,18 @@ export class ShellRunner {
   }
 
   runCommandSync(command, args, options) {
-    const builtin = this.shellBuiltin(command);
+    const builtin = this.kernel.commandBuiltins.get(command);
     if (builtin) {
-      return this.syncShellBuiltin(command, args, options);
+      return runCommandBuiltinSync(builtin, args, {
+        kernel: this.kernel,
+        cwd: options.cwd,
+        env: options.env,
+        stdin: options.stdin,
+        stdout: options.stdout,
+        stderr: options.stderr,
+        projectId: options.projectId,
+        parentPid: options.parentPid
+      });
     }
 
     const result = this.kernel.spawnSync(command, args, {
@@ -158,136 +179,6 @@ export class ShellRunner {
     options.stdout?.write(result.stdout);
     options.stderr?.write(result.stderr);
     return { status: result.status, cwd: options.cwd };
-  }
-
-  syncShellBuiltin(command, args, options) {
-    const fs = this.kernel.fs;
-    const resolve = (cwd, path) => resolvePath(cwd, path);
-    switch (command) {
-      case "cd": {
-        const target = resolve(options.cwd, args[0] ?? "/workspace");
-        const stat = fs.statSync(target);
-        if (!stat.isDirectory()) throw new Error(`${target} is not a directory`);
-        return { status: 0, cwd: target };
-      }
-      case "pwd":
-        options.stdout?.write(`${options.cwd}\n`);
-        return { status: 0, cwd: options.cwd };
-      case "ls": {
-        const target = resolve(options.cwd, args[0] ?? ".");
-        options.stdout?.write(`${fs.readdirSync(target).join("\n")}\n`);
-        return { status: 0, cwd: options.cwd };
-      }
-      case "cat":
-        if (!args.length) options.stdout?.write(options.stdin ?? "");
-        else for (const path of args) options.stdout?.write(fs.readFileSync(resolve(options.cwd, path), "utf8"));
-        return { status: 0, cwd: options.cwd };
-      case "echo":
-        options.stdout?.write(`${args.join(" ")}\n`);
-        return { status: 0, cwd: options.cwd };
-      case "mkdir": {
-        const recursive = args.includes("-p");
-        for (const path of args.filter((arg) => arg !== "-p")) fs.mkdirSync(resolve(options.cwd, path), { recursive });
-        return { status: 0, cwd: options.cwd };
-      }
-      case "rm": {
-        const recursive = args.includes("-r") || args.includes("-rf") || args.includes("-fr");
-        const force = args.includes("-f") || args.includes("-rf") || args.includes("-fr");
-        for (const path of args.filter((arg) => !arg.startsWith("-"))) fs.rmSync(resolve(options.cwd, path), { recursive, force });
-        return { status: 0, cwd: options.cwd };
-      }
-      case "cp":
-        fs.copyFileSync(resolve(options.cwd, args[0]), resolve(options.cwd, args[1]));
-        return { status: 0, cwd: options.cwd };
-      case "mv":
-        fs.renameSync(resolve(options.cwd, args[0]), resolve(options.cwd, args[1]));
-        return { status: 0, cwd: options.cwd };
-      case "which": {
-        for (const commandName of args) {
-          const shim = resolve(options.cwd, `node_modules/.bin/${commandName}`);
-          if (fs.existsSync(shim)) options.stdout?.write(`${shim}\n`);
-          else if (["node", "npm", "sh"].includes(commandName)) options.stdout?.write(`/bin/${commandName}\n`);
-        }
-        return { status: 0, cwd: options.cwd };
-      }
-      case "env":
-        for (const [key, value] of Object.entries(options.env ?? {})) options.stdout?.write(`${key}=${value}\n`);
-        return { status: 0, cwd: options.cwd };
-      case "clear":
-        options.stdout?.write("\x1bc");
-        return { status: 0, cwd: options.cwd };
-      default:
-        throw new Error(`No synchronous shell builtin: ${command}`);
-    }
-  }
-
-  shellBuiltin(command) {
-    const fs = this.kernel.fs;
-    const resolve = (cwd, path) => resolvePath(cwd, path);
-
-    const builtins = {
-      cd: async (args, options) => {
-        const target = resolve(options.cwd, args[0] ?? "/workspace");
-        const stat = fs.statSync(target);
-        if (!stat.isDirectory()) throw new Error(`${target} is not a directory`);
-        return { status: 0, cwd: target };
-      },
-      pwd: async (_args, options) => {
-        options.stdout?.write(`${options.cwd}\n`);
-        return { status: 0, cwd: options.cwd };
-      },
-      ls: async (args, options) => {
-        const target = resolve(options.cwd, args[0] ?? ".");
-        options.stdout?.write(`${fs.readdirSync(target).join("\n")}\n`);
-        return { status: 0, cwd: options.cwd };
-      },
-      cat: async (args, options) => {
-        if (!args.length) options.stdout?.write(options.stdin ?? "");
-        else for (const path of args) options.stdout?.write(fs.readFileSync(resolve(options.cwd, path), "utf8"));
-        return { status: 0, cwd: options.cwd };
-      },
-      echo: async (args, options) => {
-        options.stdout?.write(`${args.join(" ")}\n`);
-        return { status: 0, cwd: options.cwd };
-      },
-      mkdir: async (args, options) => {
-        const recursive = args.includes("-p");
-        for (const path of args.filter((arg) => arg !== "-p")) fs.mkdirSync(resolve(options.cwd, path), { recursive });
-        return { status: 0, cwd: options.cwd };
-      },
-      rm: async (args, options) => {
-        const recursive = args.includes("-r") || args.includes("-rf") || args.includes("-fr");
-        const force = args.includes("-f") || args.includes("-rf") || args.includes("-fr");
-        for (const path of args.filter((arg) => !arg.startsWith("-"))) fs.rmSync(resolve(options.cwd, path), { recursive, force });
-        return { status: 0, cwd: options.cwd };
-      },
-      cp: async (args, options) => {
-        fs.copyFileSync(resolve(options.cwd, args[0]), resolve(options.cwd, args[1]));
-        return { status: 0, cwd: options.cwd };
-      },
-      mv: async (args, options) => {
-        fs.renameSync(resolve(options.cwd, args[0]), resolve(options.cwd, args[1]));
-        return { status: 0, cwd: options.cwd };
-      },
-      which: async (args, options) => {
-        for (const commandName of args) {
-          const shim = resolve(options.cwd, `node_modules/.bin/${commandName}`);
-          if (fs.existsSync(shim)) options.stdout?.write(`${shim}\n`);
-          else if (["node", "npm", "sh"].includes(commandName)) options.stdout?.write(`/bin/${commandName}\n`);
-        }
-        return { status: 0, cwd: options.cwd };
-      },
-      env: async (_args, options) => {
-        for (const [key, value] of Object.entries(options.env ?? {})) options.stdout?.write(`${key}=${value}\n`);
-        return { status: 0, cwd: options.cwd };
-      },
-      clear: async (_args, options) => {
-        options.stdout?.write("\x1bc");
-        return { status: 0, cwd: options.cwd };
-      }
-    };
-
-    return builtins[command];
   }
 
   prepareSegment(segment, cwd) {
@@ -317,7 +208,7 @@ export class ShellRunner {
   }
 
   writeRedirect(redirect, data, cwd) {
-    const target = resolvePath(cwd, redirect.target);
+    const target = resolveShellPath(cwd, redirect.target);
     if (redirect.append && this.kernel.fs.existsSync(target)) {
       this.kernel.fs.appendFileSync(target, data);
     } else {
@@ -328,7 +219,7 @@ export class ShellRunner {
   expandGlobs(args, cwd) {
     return args.flatMap((arg) => {
       if (!/[*?]/.test(arg)) return [arg];
-      const resolved = resolvePath(cwd, arg);
+      const resolved = resolveShellPath(cwd, arg);
       const directory = dirname(resolved);
       const pattern = resolved.slice(directory.length === 1 ? 1 : directory.length + 1);
       if (!this.kernel.fs.existsSync(directory) || !this.kernel.fs.statSync(directory).isDirectory()) return [arg];

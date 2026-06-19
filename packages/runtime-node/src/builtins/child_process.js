@@ -1,20 +1,42 @@
 import { EventEmitter } from "./events.js";
 import { Readable, Writable } from "./stream.js";
 
-function childHandleFromVirtualProcess(virtualProcess) {
+function normalizeStdio(stdio) {
+  if (Array.isArray(stdio)) {
+    return [
+      stdio[0] ?? "pipe",
+      stdio[1] ?? "pipe",
+      stdio[2] ?? "pipe"
+    ];
+  }
+  if (stdio === "inherit") return ["inherit", "inherit", "inherit"];
+  if (stdio === "ignore") return ["ignore", "ignore", "ignore"];
+  return ["pipe", "pipe", "pipe"];
+}
+
+function childHandleFromVirtualProcess(virtualProcess, { parentProcess, stdio = "pipe" } = {}) {
+  const [stdinMode, stdoutMode, stderrMode] = normalizeStdio(stdio);
   const child = new EventEmitter();
   child.pid = virtualProcess.pid;
-  child.stdin = new Writable({ write: (chunk) => virtualProcess.stdin.write(chunk) });
-  child.stdout = new Readable();
-  child.stderr = new Readable();
+  child.stdin = stdinMode === "pipe"
+    ? new Writable({ write: (chunk) => virtualProcess.stdin.write(chunk) })
+    : null;
+  child.stdout = stdoutMode === "pipe" ? new Readable() : null;
+  child.stderr = stderrMode === "pipe" ? new Readable() : null;
 
-  virtualProcess.stdout.on("data", (chunk) => child.stdout.push(chunk));
-  virtualProcess.stderr.on("data", (chunk) => child.stderr.push(chunk));
+  virtualProcess.stdout.on("data", (chunk) => {
+    if (stdoutMode === "inherit") parentProcess?.stdout?.write(chunk);
+    child.stdout?.push(chunk);
+  });
+  virtualProcess.stderr.on("data", (chunk) => {
+    if (stderrMode === "inherit") parentProcess?.stderr?.write(chunk);
+    child.stderr?.push(chunk);
+  });
   virtualProcess.on("exit", (code, signal) => {
     child.exitCode = code;
     child.signalCode = signal;
-    child.stdout.push(null);
-    child.stderr.push(null);
+    child.stdout?.push(null);
+    child.stderr?.push(null);
     child.emit("exit", code, signal);
     child.emit("close", code, signal);
   });
@@ -38,7 +60,10 @@ export function createChildProcessBuiltin({ kernel, process }) {
       projectId: process.env.OPENCONTAINERS_PROJECT_ID ?? "default",
       parentPid: process.pid
     });
-    const child = childHandleFromVirtualProcess(virtualProcess);
+    const child = childHandleFromVirtualProcess(virtualProcess, {
+      parentProcess: process,
+      stdio: options.stdio
+    });
     child.on("close", () => process.__opencontainersUnref?.());
     child.on("error", () => process.__opencontainersUnref?.());
     return child;

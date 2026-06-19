@@ -11,7 +11,7 @@ export class NodeRuntime {
 
   createConsole() {
     const write = (stream, args) => {
-      stream.write(`${args.map((arg) => typeof arg === "string" ? arg : JSON.stringify(arg)).join(" ")}\n`);
+      stream.write(`${args.map(formatConsoleValue).join(" ")}\n`);
     };
     return {
       log: (...args) => write(this.descriptor.stdout, args),
@@ -33,7 +33,6 @@ export class NodeRuntime {
       if (!script) throw new Error("node requires a script path or -e source");
       const filename = resolvePath(this.descriptor.cwd, script);
       this.descriptor.argv = ["node", filename, ...args.slice(1)];
-      this.descriptor.cwd = dirname(filename);
       await this.loader.import(filename, `${dirname(filename)}/[entry].js`);
       return this.loader.process.exitCode ?? 0;
     } catch (error) {
@@ -55,7 +54,6 @@ export class NodeRuntime {
       if (!script) throw new Error("node requires a script path or -e source");
       const filename = resolvePath(this.descriptor.cwd, script);
       this.descriptor.argv = ["node", filename, ...args.slice(1)];
-      this.descriptor.cwd = dirname(filename);
       this.loader.require(filename, `${dirname(filename)}/[entry].js`);
       return 0;
     } catch (error) {
@@ -106,5 +104,20 @@ export class NodeRuntime {
       (specifier) => this.loader.dynamicImport(specifier, filename)
     );
     return module.exports;
+  }
+}
+
+function formatConsoleValue(value) {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "undefined";
+  if (typeof value === "function") return `[Function${value.name ? `: ${value.name}` : ""}]`;
+  if (typeof value === "symbol") return String(value);
+  if (typeof value === "bigint") return `${value}n`;
+  if (value instanceof Error) return value.stack ?? `${value.name}: ${value.message}`;
+  try {
+    const json = JSON.stringify(value);
+    return json === undefined ? String(value) : json;
+  } catch (_) {
+    return String(value);
   }
 }

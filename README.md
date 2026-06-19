@@ -25,6 +25,17 @@ Current constraints include:
 - `packages/service-worker` and `packages/preview-client` handle browser previews.
 - `apps/run-welford` contains the standalone OpenContainers Run app.
 
+## Runtime Package Contents
+
+The npm package intentionally ships the README, `package.json`, and the bundled browser runtime at `packages/embed/dist/webcontainer-compatible.js`.
+That bundle contains:
+
+- The `OpenContainer` and `WebContainer` browser facades.
+- The virtual filesystem, Node-like runtime, shell, npm runner, preview bridge, and service worker generator.
+- `createOpenContainersServiceWorkerScript()`, which writes the service worker your app must serve from its own origin.
+
+You do not need the repository source files to build a REPL host. You import the bundled runtime from `opencontainers`, serve the generated service worker from your public directory, and provide your own editor, terminal, file UI, and preview iframe.
+
 ## Local Development
 
 Install dependencies for the standalone app:
@@ -108,6 +119,32 @@ The minimum host app flow is:
 5. Spawn `node`, `npm`, or another supported command.
 6. Pipe process output into your console UI.
 7. Listen for `server-ready` and point an iframe at the preview URL.
+
+### npm And npx
+
+`npm` and `npx` are routed through the real npm CLI inside the virtual filesystem, not a hand-written installer shim.
+On first use, OpenContainers downloads a pinned npm CLI tarball from the npm registry, verifies and extracts it into:
+
+```txt
+/home/opencontainers/.opencontainers/npm/npm-11.17.0
+```
+
+npm's cache is stored in:
+
+```txt
+/home/opencontainers/.npm
+```
+
+That means normal flows such as these work from either your app's run button or a terminal UI backed by `container.spawn()`:
+
+```sh
+npm install chalk
+node index.js
+npx cowsay OpenContainers
+npm run dev
+```
+
+The runtime still enforces browser constraints. Native Node add-ons, postinstall scripts without permission, raw external TCP, and browser-blocked network/CORS requests are not made available just because npm is real.
 
 ### 1. Generate The Service Worker
 
