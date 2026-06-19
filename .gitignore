@@ -3,6 +3,9 @@ node_modules/
 .pnp/
 .pnp.*
 
+# Extracted applications
+apps/run-welford/
+
 # Package manager caches
 .npm/
 .pnpm-store/

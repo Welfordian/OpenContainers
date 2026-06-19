@@ -2,8 +2,6 @@
 
 OpenContainers is a clean-room, browser-native runtime for running Node-style JavaScript projects without a server-side container. It provides a WebContainer-compatible facade, a virtual filesystem, selected Node built-ins, npm package installation, HTTP previews, and WebSocket bridging for browser-based playgrounds and REPLs.
 
-The main hosted app in this repository is OpenContainers Run, a standalone playground intended for `run.welford.me`.
-
 ## Status
 
 OpenContainers is currently an early implementation. It is useful for browser-based JavaScript and Node experiments, but it is not a full Linux or Node.js VM.
@@ -23,7 +21,6 @@ Current constraints include:
 - `packages/fs` contains the virtual filesystem.
 - `packages/npm` contains npm registry and installer support.
 - `packages/service-worker` and `packages/preview-client` handle browser previews.
-- `apps/run-welford` contains the standalone OpenContainers Run app.
 
 ## Runtime Package Contents
 
@@ -37,24 +34,6 @@ That bundle contains:
 You do not need the repository source files to build a REPL host. You import the bundled runtime from `opencontainers`, serve the generated service worker from your public directory, and provide your own editor, terminal, file UI, and preview iframe.
 
 ## Local Development
-
-Install dependencies for the standalone app:
-
-```sh
-npm --prefix apps/run-welford install
-```
-
-Run the OpenContainers Run app locally:
-
-```sh
-npm run run:dev
-```
-
-Build the standalone app:
-
-```sh
-npm run run:build
-```
 
 Run the test suite:
 
@@ -108,7 +87,7 @@ console.log({ exitCode, output });
 
 ## Building A Browser REPL
 
-OpenContainers gives you the runtime pieces needed to build a REPL like OpenContainers Run. Your host app provides the editor, console UI, file state, package controls, and styling.
+OpenContainers gives you the runtime pieces needed to build a browser REPL. Your host app provides the editor, console UI, file state, package controls, and styling.
 
 The minimum host app flow is:
 
@@ -337,7 +316,7 @@ Your app must serve and register the OpenContainers service worker. The default 
 - Service worker URL: `/opencontainers-runtime-sw.js`
 - Preview route base: `/opencontainers/preview`
 
-The standalone app already wires these pieces together. For your own app, follow the service worker setup above.
+Follow the service worker setup above when integrating OpenContainers into your own app.
 
 ## WebContainer Compatibility
 
@@ -351,25 +330,9 @@ const container = await WebContainer.boot();
 
 The compatibility layer supports common flows such as mounting files, spawning Node commands, listening for server-ready events, and dispatching preview requests. It does not aim to perfectly emulate every StackBlitz WebContainers behavior.
 
-## Cloudflare Pages
-
-The standalone app is compatible with Cloudflare Pages.
-
-Use these Pages settings:
-
-- Root directory: `apps/run-welford`
-- Build command: `npm run build`
-- Build output directory: `dist`
-- Node version: `26`
-
-Share persistence expects a D1 binding named `bookmarks` with the `repl_shares` table.
-
 ## Useful Commands
 
 ```sh
-npm run run:dev
-npm run run:build
-npm run run:pages:dev
 npm test
 npm run test:milestones
 ```
