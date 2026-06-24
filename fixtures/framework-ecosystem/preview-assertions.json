@@ -1,0 +1,31 @@
+{
+  "projectId": "fixture-framework-ecosystem",
+  "requests": [
+    {
+      "port": 3000,
+      "path": "/fastify",
+      "status": 200,
+      "bodyContains": "fastify:/fastify"
+    },
+    {
+      "port": 3000,
+      "path": "/hono",
+      "status": 200,
+      "bodyContains": "hono:/hono"
+    }
+  ],
+  "webSockets": [
+    {
+      "port": 3000,
+      "path": "/ws",
+      "send": "ping",
+      "messages": ["ws-ready", "ws:ping"]
+    },
+    {
+      "port": 3000,
+      "path": "/socket.io/?EIO=4&transport=websocket",
+      "send": "{\"event\":\"chat message\",\"args\":[\"ping\"]}",
+      "messages": ["{\"event\":\"chat message\",\"args\":[\"socketio:ping\"]}"]
+    }
+  ]
+}

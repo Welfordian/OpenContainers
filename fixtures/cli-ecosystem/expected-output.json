@@ -1,0 +1,13 @@
+{
+  "contains": [
+    "installed",
+    "tsc fixture emitted dist/cli.js",
+    "eslint fixture passed src",
+    "All matched files use Prettier fixture",
+    "vitest fixture passed",
+    "tsx fixture running src/cli.ts",
+    "ts-node fixture running src/cli.ts",
+    "jest fixture 1.0.0",
+    "cli source cli-fixture"
+  ]
+}

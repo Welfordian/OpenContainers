@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "fixture": "cli-ecosystem",
+  "category": "cli",
+  "packages": [
+    { "name": "typescript", "version": "1.0.0" },
+    { "name": "tsx", "version": "1.0.0" },
+    { "name": "ts-node", "version": "1.0.0" },
+    { "name": "eslint", "version": "1.0.0" },
+    { "name": "prettier", "version": "1.0.0" },
+    { "name": "vitest", "version": "1.0.0" },
+    { "name": "jest", "version": "1.0.0" }
+  ],
+  "commands": [
+    "npm install",
+    "npm run build",
+    "npm run-script lint",
+    "npm run format",
+    "npm t",
+    "npm run tsx",
+    "npm run ts-node",
+    "npx jest --version",
+    "node dist/cli.js"
+  ],
+  "expectedOutputContains": [
+    "installed",
+    "tsc fixture emitted dist/cli.js",
+    "eslint fixture passed src",
+    "All matched files use Prettier fixture",
+    "vitest fixture passed",
+    "tsx fixture running src/cli.ts",
+    "ts-node fixture running src/cli.ts",
+    "jest fixture 1.0.0",
+    "cli source cli-fixture"
+  ],
+  "previewAssertions": false,
+  "requiredPermissions": ["childProcesses", "packageInstall"]
+}

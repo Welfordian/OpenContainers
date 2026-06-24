@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "fixture": "websocket-basic",
+  "category": "network",
+  "packages": [],
+  "commands": ["npm run dev"],
+  "expectedOutputContains": [],
+  "previewAssertions": true,
+  "requiredPermissions": ["preview", "webSocketPreview"]
+}

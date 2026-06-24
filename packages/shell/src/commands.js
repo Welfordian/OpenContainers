@@ -47,7 +47,7 @@ export function commandContext(context) {
     env: context.env ?? context.descriptor?.env ?? {},
     stdout: context.stdout ?? context.descriptor?.stdout,
     stderr: context.stderr ?? context.descriptor?.stderr,
-    stdin: context.stdin ?? "",
+    stdin: context.stdin ?? context.descriptor?.stdin?.toString?.() ?? "",
     projectId: context.projectId ?? context.descriptor?.projectId ?? "default",
     parentPid: context.parentPid ?? context.descriptor?.pid,
     descriptor: context.descriptor

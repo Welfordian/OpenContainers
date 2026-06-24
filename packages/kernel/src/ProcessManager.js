@@ -50,19 +50,27 @@ export class ProcessManager {
   spawnSync(command, args = [], options = {}) {
     const descriptor = this.createDescriptor(command, args, options);
     const process = new VirtualProcess(descriptor);
+    if (options.input !== undefined) process.stdin.write(options.input);
     this.processes.set(process.pid, process);
+    let syncError;
     try {
       const status = this.#runSync(process, command, args);
       process.finish(status ?? 0);
     } catch (error) {
-      process.fail(error);
+      if (error?.code === "ENOENT") {
+        syncError = error;
+        process.descriptor.status = "exited";
+      } else {
+        process.fail(error);
+      }
     }
     return {
       pid: process.pid,
-      status: process.exitCode,
+      status: syncError ? null : process.exitCode,
       signal: process.signalCode,
       stdout: process.stdout.toBuffer(),
-      stderr: process.stderr.toBuffer()
+      stderr: process.stderr.toBuffer(),
+      error: syncError
     };
   }
 
@@ -84,6 +92,7 @@ export class ProcessManager {
       stderr: new OutputStream(),
       projectId,
       terminal: options.terminal,
+      ipc: options.ipc,
       externalNetworkAllowlist: [...(options.externalNetworkAllowlist ?? [])].map((host) => String(host).toLowerCase())
     };
     descriptor.env.OPENCONTAINERS_PROJECT_ID ??= descriptor.projectId;
@@ -94,12 +103,19 @@ export class ProcessManager {
     process.descriptor.status = "running";
     try {
       const resolved = this.resolveCommand(command, process.descriptor.cwd, process.descriptor.env);
+      if (resolved.type === "unknown") {
+        throw createSpawnEnoentError(command, args);
+      }
+      process.emit("spawn");
       let status;
-      if (resolved.type === "node" && this.processWorkerBackend && !process.descriptor.env.OPENCONTAINERS_DISABLE_PROCESS_WORKERS) {
+      const canUseProcessWorker = this.processWorkerBackend
+        && !process.descriptor.env.OPENCONTAINERS_DISABLE_PROCESS_WORKERS
+        && !process.descriptor.ipc;
+      if (resolved.type === "node" && canUseProcessWorker) {
         status = await this.processWorkerBackend.run(process, args);
       } else if (resolved.type === "node") {
         status = await new NodeRuntime({ kernel: this.kernel, descriptor: process.descriptor }).execute(args);
-      } else if (resolved.type === "node-bin" && this.processWorkerBackend && !process.descriptor.env.OPENCONTAINERS_DISABLE_PROCESS_WORKERS) {
+      } else if (resolved.type === "node-bin" && canUseProcessWorker) {
         status = await this.processWorkerBackend.run(process, [resolved.target, ...args]);
       } else if (resolved.type === "node-bin") {
         status = await new NodeRuntime({ kernel: this.kernel, descriptor: process.descriptor }).execute([resolved.target, ...args]);
@@ -110,6 +126,7 @@ export class ProcessManager {
         status = await this.kernel.shell.run(commandLine, {
           cwd: process.descriptor.cwd,
           env: process.descriptor.env,
+          stdin: process.descriptor.stdin.toString(),
           stdout: process.descriptor.stdout,
           stderr: process.descriptor.stderr,
           projectId: process.descriptor.projectId,
@@ -125,8 +142,6 @@ export class ProcessManager {
           process.descriptor.cwd = result.cwd;
           process.descriptor.env.PWD = result.cwd;
         }
-      } else {
-        throw Object.assign(new Error(`Unsupported command: ${command}`), { code: "ENOENT" });
       }
       const finalStatus = () => process.descriptor.exitCode ?? status ?? 0;
       if ((status ?? 0) === 0 && (this.kernel.portManager.hasPid(process.pid) || this.kernel.net.hasPid(process.pid) || process.descriptor.refCount > 0)) {
@@ -142,7 +157,11 @@ export class ProcessManager {
       }
       process.finish(finalStatus());
     } catch (error) {
-      process.fail(error);
+      if (error?.code === "ENOENT" && error?.syscall === `spawn ${command}`) {
+        process.failToSpawn(error);
+      } else {
+        process.fail(error);
+      }
     } finally {
       if (process.exitCode !== null) this.kernel.unregisterPortsForPid(process.pid);
     }
@@ -162,6 +181,7 @@ export class ProcessManager {
       return this.kernel.shell.runSync(commandLine, {
         cwd: process.descriptor.cwd,
         env: process.descriptor.env,
+        stdin: process.descriptor.stdin.toString(),
         stdout: process.descriptor.stdout,
         stderr: process.descriptor.stderr,
         projectId: process.descriptor.projectId,
@@ -264,6 +284,10 @@ export class ProcessManager {
     return true;
   }
 
+  hasProcess(pid) {
+    return this.processes.has(pid);
+  }
+
   killTree(pid, signal) {
     const killed = new Set();
     const killOne = (targetPid) => {
@@ -277,4 +301,14 @@ export class ProcessManager {
     killOne(pid);
     return killed.size > 0;
   }
+}
+
+function createSpawnEnoentError(command, args = []) {
+  const error = new Error(`spawn ${command} ENOENT`);
+  error.errno = -2;
+  error.code = "ENOENT";
+  error.syscall = `spawn ${command}`;
+  error.path = String(command);
+  error.spawnargs = [...args];
+  return error;
 }

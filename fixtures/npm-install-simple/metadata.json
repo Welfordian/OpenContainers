@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "fixture": "npm-install-simple",
+  "category": "package-manager",
+  "packages": [
+    { "name": "is-odd", "version": "1.0.0" }
+  ],
+  "commands": ["npm install", "npm run test"],
+  "expectedOutputContains": ["installed", "true"],
+  "previewAssertions": false,
+  "requiredPermissions": ["packageInstall"]
+}

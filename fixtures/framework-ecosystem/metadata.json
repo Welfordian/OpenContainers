@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "fixture": "framework-ecosystem",
+  "category": "framework",
+  "packages": [
+    { "name": "fastify", "version": "1.0.0" },
+    { "name": "hono", "version": "1.0.0" },
+    { "name": "socket.io", "version": "1.0.0" },
+    { "name": "ws", "version": "1.0.0" }
+  ],
+  "commands": ["npm install", "npm run dev"],
+  "expectedOutputContains": ["installed", "framework fixture ready"],
+  "previewAssertions": true,
+  "requiredPermissions": ["packageInstall", "preview", "webSocketPreview"]
+}

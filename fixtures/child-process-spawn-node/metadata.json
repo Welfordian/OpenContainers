@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "fixture": "child-process-spawn-node",
+  "category": "process",
+  "packages": [],
+  "commands": ["npm run test"],
+  "expectedOutputContains": ["child fixture"],
+  "previewAssertions": false,
+  "requiredPermissions": ["childProcesses"]
+}

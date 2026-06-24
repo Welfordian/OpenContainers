@@ -6,6 +6,12 @@ OpenContainers is a clean-room, browser-native runtime for running Node-style Ja
 
 OpenContainers is currently an early implementation. It is useful for browser-based JavaScript and Node experiments, but it is not a full Linux or Node.js VM.
 
+The current Node.js compatibility matrix lives in [docs/compat/nodejs.md](docs/compat/nodejs.md). That table is generated from [docs/compat/nodejs.json](docs/compat/nodejs.json) and records each tracked core module and global as `full`, `partial`, `stubbed`, `blocked`, or `missing`.
+
+Package and framework smoke coverage lives in [docs/compat/packages.md](docs/compat/packages.md). That report is generated from fixture metadata and records the package versions, commands, preview assertions, and permissions exercised by the compatibility lab.
+
+Unsupported APIs and browser/runtime boundary errors are listed in [docs/compat/unsupported.md](docs/compat/unsupported.md).
+
 Current constraints include:
 
 - Native Node add-ons are not supported.
@@ -13,6 +19,16 @@ Current constraints include:
 - Raw external TCP and TLS sockets are not supported.
 - Package lifecycle scripts are permission-gated.
 - Preview servers are routed through the OpenContainers service worker.
+
+## Compatibility Model
+
+OpenContainers aims for practical Node.js compatibility inside the browser security model.
+
+- Compared with Node.js: OpenContainers implements Node-style modules, globals, filesystem, npm, processes, terminal flows, HTTP previews, and virtual loopback networking, but it does not expose the host operating system, native add-ons, raw external sockets, real file descriptors, or OS process isolation.
+- Compared with Bun: OpenContainers uses Bun's documented Node.js compatibility matrix as the expansion target, but the project only claims support where the generated compatibility matrix and tests back it up.
+- Compared with StackBlitz WebContainers: OpenContainers provides a WebContainer-shaped facade for common mount/spawn/preview flows, but it is a clean-room implementation and does not guarantee every WebContainers edge case.
+
+If a browser-safe Node API is missing, treat it as an OpenContainers compatibility bug. If an API requires native OS privileges or would pierce the host page's security boundary, it should fail with a documented OpenContainers error code instead of silently escaping the sandbox.
 
 ## Repository Layout
 
@@ -24,14 +40,14 @@ Current constraints include:
 
 ## Runtime Package Contents
 
-The npm package intentionally ships the README, `package.json`, and the bundled browser runtime at `packages/embed/dist/webcontainer-compatible.js`.
-That bundle contains:
+The npm package intentionally ships the README, `package.json`, and the browser runtime source modules needed by `packages/embed/src/webcontainer-compatible.js`.
+The exported runtime contains:
 
 - The `OpenContainer` and `WebContainer` browser facades.
 - The virtual filesystem, Node-like runtime, shell, npm runner, preview bridge, and service worker generator.
 - `createOpenContainersServiceWorkerScript()`, which writes the service worker your app must serve from its own origin.
 
-You do not need the repository source files to build a REPL host. You import the bundled runtime from `opencontainers`, serve the generated service worker from your public directory, and provide your own editor, terminal, file UI, and preview iframe.
+You do not need this repository checked out to build a REPL host. You import the runtime from `opencontainers`, serve the generated service worker from your public directory, and provide your own editor, terminal, file UI, and preview iframe.
 
 ## Local Development
 

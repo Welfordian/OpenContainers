@@ -15,6 +15,10 @@ export class NpmCommand {
       return this.#runLegacy(command === "npx" ? ["exec", ...args] : args, descriptor);
     }
 
+    if (command === "npm" && this.#isLocalScriptCommand(args)) {
+      return this.#runLegacy(args, descriptor, { emitScriptHeader: true });
+    }
+
     const entrypoints = await this.bootstrapper.ensure();
     const cliPath = command === "npx" ? entrypoints.npxRunner : entrypoints.npmRunner;
     const child = this.kernel.spawn("node", [cliPath, ...args], {
@@ -41,7 +45,13 @@ export class NpmCommand {
     return result.status;
   }
 
-  async #runLegacy(args, descriptor) {
+  #isLocalScriptCommand(args) {
+    const command = args[0];
+    if (command === "run" || command === "run-script") return true;
+    return ["t", "tst", "test", "start", "stop", "restart"].includes(command);
+  }
+
+  async #runLegacy(args, descriptor, { emitScriptHeader = false } = {}) {
     const [command = "--version", ...rest] = args;
     if (command === "--version" || command === "-v") {
       descriptor.stdout.write("opencontainers-npm/0.1.0\n");
@@ -54,24 +64,21 @@ export class NpmCommand {
       descriptor.stdout.write("installed\n");
       return 0;
     }
-    if (command === "run") {
+    if (command === "run" || command === "run-script") {
       const scriptName = rest[0];
       if (!scriptName) throw new Error("npm run requires a script name");
-      const manifest = JSON.parse(this.kernel.fs.readFileSync(`${descriptor.cwd}/package.json`, "utf8"));
-      const script = manifest.scripts?.[scriptName];
-      if (!script) throw new Error(`Missing script: ${scriptName}`);
-      return this.kernel.shell.run(script, {
-        cwd: descriptor.cwd,
-        env: {
-          ...descriptor.env,
-          npm_lifecycle_event: scriptName,
-          PATH: `${descriptor.cwd}/node_modules/.bin:${descriptor.env.PATH ?? ""}`
-        },
-        stdout: descriptor.stdout,
-        stderr: descriptor.stderr,
-        projectId: descriptor.projectId,
-        parentPid: descriptor.pid
-      });
+      return this.#runScript(scriptName, descriptor, { emitHeader: emitScriptHeader });
+    }
+    const scriptAlias = {
+      t: "test",
+      tst: "test",
+      test: "test",
+      start: "start",
+      stop: "stop",
+      restart: "restart"
+    }[command];
+    if (scriptAlias) {
+      return this.#runScript(scriptAlias, descriptor, { emitHeader: emitScriptHeader });
     }
     if (command === "exec") {
       const [bin, ...binArgs] = rest;
@@ -93,5 +100,28 @@ export class NpmCommand {
       return 0;
     }
     throw new Error(`Unsupported npm command: ${command}`);
+  }
+
+  #runScript(scriptName, descriptor, { emitHeader = false } = {}) {
+    const manifest = JSON.parse(this.kernel.fs.readFileSync(`${descriptor.cwd}/package.json`, "utf8"));
+    const script = manifest.scripts?.[scriptName];
+    if (!script) throw new Error(`Missing script: ${scriptName}`);
+    if (emitHeader) {
+      descriptor.stdout.write(`> ${scriptName}\n> ${script}\n`);
+    }
+    return this.kernel.shell.run(script, {
+      cwd: descriptor.cwd,
+      env: {
+        ...descriptor.env,
+        npm_lifecycle_event: scriptName,
+        npm_lifecycle_script: script,
+        npm_package_json: `${descriptor.cwd}/package.json`,
+        PATH: `${descriptor.cwd}/node_modules/.bin:${descriptor.env.PATH ?? ""}`
+      },
+      stdout: descriptor.stdout,
+      stderr: descriptor.stderr,
+      projectId: descriptor.projectId,
+      parentPid: descriptor.pid
+    });
   }
 }

@@ -1,0 +1,14 @@
+{
+  "contains": [
+    "installed",
+    "undici-fetch:fetch:1",
+    "dotenv:from-env-file",
+    "commander:oc",
+    "yargs:value",
+    "oc:probe value 7",
+    "debug-enabled:true",
+    "chalk:\u001b[32mok\u001b[39m:\u001b[1mbold\u001b[22m",
+    "undici:/pkg",
+    "package probes complete"
+  ]
+}

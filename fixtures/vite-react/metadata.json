@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "fixture": "vite-react",
+  "category": "framework",
+  "packages": [
+    { "name": "vite", "version": "5.0.0" }
+  ],
+  "commands": ["npm install", "npm run dev"],
+  "expectedOutputContains": ["installed", "vite fixture dev server", "opencontainers-esbuild-wasm-adapter"],
+  "previewAssertions": true,
+  "requiredPermissions": ["packageInstall", "preview", "webSocketPreview"]
+}

@@ -98,6 +98,15 @@ test("unsupported builtin flags return nonzero with concise stderr", async () =>
   assert.equal(result.stderr.toString(), "ls: unsupported option -- z\n");
 });
 
+test("shell reports missing commands with status 127", async () => {
+  const kernel = new Kernel();
+  const result = await kernel.run("sh", ["-c", "definitely-missing-opencontainers-command --flag"], { cwd: "/workspace" });
+
+  assert.equal(result.status, 127);
+  assert.equal(result.stdout.toString(), "");
+  assert.equal(result.stderr.toString(), "/bin/sh: definitely-missing-opencontainers-command: command not found\n");
+});
+
 test("shell exit builtin sets the process status", async () => {
   const kernel = new Kernel();
   const result = await kernel.run("sh", ["-c", "echo before && exit 7 && echo after"], { cwd: "/workspace" });

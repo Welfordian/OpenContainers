@@ -6,6 +6,10 @@ node_modules/
 # Extracted applications
 apps/run-welford/
 
+# Local planning and diagnostics
+/EXPANSION_PLAN.md
+*.heapsnapshot
+
 # Package manager caches
 .npm/
 .pnpm-store/

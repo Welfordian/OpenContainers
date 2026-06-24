@@ -4,6 +4,7 @@ import { NpmCommand } from "../../npm/src/npm-command.js";
 import { registerDefaultCommandBuiltins } from "../../shell/src/commands.js";
 import { ShellRunner } from "../../shell/src/runner.js";
 import { NetManager } from "./NetManager.js";
+import { Http2Manager } from "./Http2Manager.js";
 import { PortManager } from "./PortManager.js";
 import { ProcessManager } from "./ProcessManager.js";
 import { PtyManager } from "./PtyManager.js";
@@ -31,6 +32,7 @@ export class Kernel {
     this.commandBuiltins = new Map();
     this.portManager = new PortManager();
     this.net = new NetManager();
+    this.http2 = new Http2Manager({ net: this.net });
     this.webSockets = new WebSocketManager();
     this.processManager = new ProcessManager({ kernel: this, processWorkerFactory, processWorkerBackend });
     this.pty = new PtyManager({ kernel: this });
@@ -60,6 +62,10 @@ export class Kernel {
     return this.processManager.kill(pid, signal);
   }
 
+  hasProcess(pid) {
+    return this.processManager.hasProcess(pid);
+  }
+
   killTree(pid, signal) {
     return this.processManager.killTree(pid, signal);
   }
@@ -84,6 +90,7 @@ export class Kernel {
       }
     }
     this.portManager.unregisterForPid(pid);
+    this.http2.unregisterForPid(pid);
     this.net.unregisterForPid(pid);
     this.processManager.processes.get(pid)?.descriptor.onIdle?.();
   }
@@ -104,7 +111,39 @@ export class Kernel {
     return this.net.listen(options);
   }
 
+  closeNet(options) {
+    const closed = this.net.unlisten(options);
+    this.processManager.processes.get(options.pid)?.descriptor.onIdle?.();
+    return closed;
+  }
+
   connectNet(options) {
     return this.net.connect(options);
+  }
+
+  listenDgram(options) {
+    return this.net.listenUdp(options);
+  }
+
+  closeDgram(options) {
+    return this.net.unlistenUdp(options);
+  }
+
+  sendDgram(options) {
+    return this.net.sendUdp(options);
+  }
+
+  listenHttp2(options) {
+    return this.http2.listen(options);
+  }
+
+  closeHttp2(options) {
+    const closed = this.http2.close(options);
+    this.processManager.processes.get(options.pid)?.descriptor.onIdle?.();
+    return closed;
+  }
+
+  connectHttp2(options) {
+    return this.http2.connect(options);
   }
 }

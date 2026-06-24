@@ -1,0 +1,19 @@
+{
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "lint": "eslint src",
+    "format": "prettier --check src/cli.ts",
+    "test": "vitest run",
+    "tsx": "tsx src/cli.ts",
+    "ts-node": "ts-node src/cli.ts"
+  },
+  "dependencies": {
+    "typescript": "1.0.0",
+    "tsx": "1.0.0",
+    "ts-node": "1.0.0",
+    "eslint": "1.0.0",
+    "prettier": "1.0.0",
+    "vitest": "1.0.0",
+    "jest": "1.0.0"
+  }
+}

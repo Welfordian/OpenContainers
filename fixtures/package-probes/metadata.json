@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "fixture": "package-probes",
+  "category": "package",
+  "packages": [
+    { "name": "chalk", "version": "5.0.0" },
+    { "name": "commander", "version": "12.0.0" },
+    { "name": "debug", "version": "4.3.0" },
+    { "name": "dotenv", "version": "16.0.0" },
+    { "name": "undici", "version": "6.0.0" },
+    { "name": "yargs", "version": "17.0.0" }
+  ],
+  "commands": ["npm install", "npm run test"],
+  "expectedOutputContains": [
+    "installed",
+    "undici-fetch:fetch:1",
+    "dotenv:from-env-file",
+    "commander:oc",
+    "yargs:value",
+    "oc:probe value 7",
+    "debug-enabled:true",
+    "chalk:\u001b[32mok\u001b[39m:\u001b[1mbold\u001b[22m",
+    "undici:/pkg",
+    "package probes complete"
+  ],
+  "previewAssertions": false,
+  "requiredPermissions": ["packageInstall"]
+}

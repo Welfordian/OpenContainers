@@ -83,6 +83,10 @@ export class ShellRunner {
       });
     }
 
+    if (!this.isRunnableCommand(command, options)) {
+      return this.commandNotFound(command, options);
+    }
+
     const child = this.kernel.spawn(command, args, {
       cwd: options.cwd,
       env: options.env,
@@ -170,6 +174,10 @@ export class ShellRunner {
       });
     }
 
+    if (!this.isRunnableCommand(command, options)) {
+      return this.commandNotFound(command, options);
+    }
+
     const result = this.kernel.spawnSync(command, args, {
       cwd: options.cwd,
       env: options.env,
@@ -179,6 +187,15 @@ export class ShellRunner {
     options.stdout?.write(result.stdout);
     options.stderr?.write(result.stderr);
     return { status: result.status, cwd: options.cwd };
+  }
+
+  isRunnableCommand(command, options) {
+    return this.kernel.processManager.resolveCommand(command, options.cwd, options.env).type !== "unknown";
+  }
+
+  commandNotFound(command, options) {
+    options.stderr?.write(`/bin/sh: ${command}: command not found\n`);
+    return { status: 127, cwd: options.cwd };
   }
 
   prepareSegment(segment, cwd) {

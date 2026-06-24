@@ -24,6 +24,155 @@
       }
     }
   },
+  "fastify": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "files": {
+          "package.json": "{\"name\":\"fastify\",\"version\":\"1.0.0\",\"main\":\"index.js\"}",
+          "index.js": "const http = require('http'); module.exports = function fastify() { const routes = []; const server = http.createServer(async (req, res) => { const pathname = new URL(req.url, 'http://localhost').pathname; const route = routes.find((entry) => entry.method === req.method && entry.path === pathname); let sent = false; const reply = { statusCode: 200, headers: {}, code(value) { this.statusCode = value; return this; }, header(name, value) { this.headers[String(name).toLowerCase()] = String(value); return this; }, type(value) { return this.header('content-type', value); }, send(value) { if (sent) return this; sent = true; if (!this.headers['content-type'] && typeof value === 'object') this.headers['content-type'] = 'application/json'; res.writeHead(this.statusCode, this.headers); res.end(typeof value === 'string' ? value : JSON.stringify(value)); return this; } }; if (!route) { reply.code(404).send('Not Found'); return; } try { const result = await route.handler({ method: req.method, url: req.url, headers: req.headers, raw: req }, reply); if (result !== undefined && !sent) reply.send(result); } catch (error) { reply.code(500).send(error && error.message ? error.message : String(error)); } }); return { server, get(path, handler) { routes.push({ method: 'GET', path, handler }); return this; }, listen(options, callback) { const port = typeof options === 'object' ? options.port : options; server.listen(port, callback); return server; } }; };"
+        }
+      }
+    }
+  },
+  "hono": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "files": {
+          "package.json": "{\"name\":\"hono\",\"version\":\"1.0.0\",\"main\":\"index.js\"}",
+          "index.js": "class Hono { constructor() { this.routes = []; } get(path, handler) { this.routes.push({ method: 'GET', path, handler }); return this; } async fetch(request) { const url = new URL(request.url); const route = this.routes.find((entry) => entry.method === request.method && entry.path === url.pathname); if (!route) return new Response('Not Found', { status: 404 }); const context = { req: { path: url.pathname, url: request.url }, text(body, status = 200, headers = {}) { return new Response(String(body), { status, headers: { 'content-type': 'text/plain', ...headers } }); }, json(value, status = 200, headers = {}) { return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json', ...headers } }); } }; return route.handler(context); } } module.exports = { Hono };"
+        }
+      }
+    }
+  },
+  "socket.io": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "files": {
+          "package.json": "{\"name\":\"socket.io\",\"version\":\"1.0.0\",\"main\":\"index.js\"}",
+          "index.js": "const { EventEmitter } = require('events'); class Server extends EventEmitter { constructor(server) { super(); server.on('upgrade', (req, endpoint) => { const pathname = new URL(req.url, 'http://localhost').pathname; if (!pathname.startsWith('/socket.io/')) return; const socket = new Socket(endpoint); this.emit('connection', socket); }); } } class Socket extends EventEmitter { constructor(endpoint) { super(); this.endpoint = endpoint; this.ready = false; this.queue = []; this.id = Math.random().toString(36).slice(2) + 'AAAB'; endpoint.addEventListener('open', () => { this.ready = true; this.flush(); }); endpoint.addEventListener('message', (event) => { try { const packet = JSON.parse(event.data); EventEmitter.prototype.emit.call(this, packet.event, ...(packet.args || [])); } catch { EventEmitter.prototype.emit.call(this, 'message', event.data); } }); endpoint.addEventListener('close', () => EventEmitter.prototype.emit.call(this, 'disconnect')); this.sendPacket('connect', { id: this.id }); } flush() { while (this.queue.length) this.endpoint.send(this.queue.shift()); } sendPacket(event, ...args) { const data = JSON.stringify({ event, args }); if (!this.ready) this.queue.push(data); else this.endpoint.send(data); } emit(event, ...args) { if (event === 'newListener' || event === 'removeListener' || event === 'error') return EventEmitter.prototype.emit.call(this, event, ...args); this.sendPacket(event, ...args); return true; } } module.exports = { Server };"
+        }
+      }
+    }
+  },
+  "ws": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "files": {
+          "package.json": "{\"name\":\"ws\",\"version\":\"1.0.0\",\"main\":\"index.js\"}",
+          "index.js": "const { EventEmitter } = require('events'); class WebSocketServer extends EventEmitter { constructor({ server, path = '/' }) { super(); this.path = path; server.on('upgrade', (req, endpoint) => { const pathname = new URL(req.url, 'http://localhost').pathname; if (pathname !== this.path) return; this.emit('connection', new Socket(endpoint), req); }); } } class Socket extends EventEmitter { constructor(endpoint) { super(); this.endpoint = endpoint; this.ready = false; this.queue = []; endpoint.addEventListener('open', () => { this.ready = true; while (this.queue.length) this.endpoint.send(this.queue.shift()); this.emit('open'); }); endpoint.addEventListener('message', (event) => this.emit('message', event.data)); endpoint.addEventListener('close', () => this.emit('close')); } send(data) { if (!this.ready) { this.queue.push(data); return; } this.endpoint.send(data); } close(code, reason) { this.endpoint.close(code, reason); } } module.exports = { WebSocketServer, WebSocket: Socket };"
+        }
+      }
+    }
+  },
+  "typescript": {
+    "versions": {
+      "1.0.0": {
+        "main": "lib/typescript.js",
+        "bin": {
+          "tsc": "bin/tsc.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"typescript\",\"version\":\"1.0.0\",\"main\":\"lib/typescript.js\",\"bin\":{\"tsc\":\"bin/tsc.js\"}}",
+          "lib/typescript.js": "module.exports = { version: 'fixture-typescript' };",
+          "bin/tsc.js": "const fs = require('fs'); const path = require('path'); const configPath = process.argv.includes('--project') ? process.argv[process.argv.indexOf('--project') + 1] : 'tsconfig.json'; const config = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8')) : {}; const rootDir = config.compilerOptions?.rootDir || 'src'; const outDir = config.compilerOptions?.outDir || 'dist'; fs.mkdirSync(outDir, { recursive: true }); const input = path.join(rootDir, 'cli.ts'); const output = path.join(outDir, 'cli.js'); let source = fs.readFileSync(input, 'utf8'); source = source.replace(/: *[A-Za-z_$][\\w$]*(?:\\[\\])?/g, ''); source = source.replace(/export +/g, ''); fs.writeFileSync(output, source); console.log('tsc fixture emitted ' + output);"
+        }
+      }
+    }
+  },
+  "tsx": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "bin": {
+          "tsx": "bin/tsx.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"tsx\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"bin\":{\"tsx\":\"bin/tsx.js\"}}",
+          "index.js": "module.exports = { version: 'fixture-tsx' };",
+          "bin/tsx.js": "const fs = require('fs'); const target = process.argv[2]; if (!target) throw new Error('tsx fixture requires a file'); let source = fs.readFileSync(target, 'utf8'); source = source.replace(/: *[A-Za-z_$][\\w$]*(?:\\[\\])?/g, ''); source = source.replace(/export +/g, ''); console.log('tsx fixture running ' + target); eval(source + '\\n//# sourceURL=opencontainers-tsx://' + target);"
+        }
+      }
+    }
+  },
+  "ts-node": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "bin": {
+          "ts-node": "bin/ts-node.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"ts-node\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"bin\":{\"ts-node\":\"bin/ts-node.js\"}}",
+          "index.js": "module.exports = { version: 'fixture-ts-node' };",
+          "bin/ts-node.js": "const fs = require('fs'); const target = process.argv[2]; if (!target) throw new Error('ts-node fixture requires a file'); let source = fs.readFileSync(target, 'utf8'); source = source.replace(/: *[A-Za-z_$][\\w$]*(?:\\[\\])?/g, ''); source = source.replace(/export +/g, ''); console.log('ts-node fixture running ' + target); eval(source + '\\n//# sourceURL=opencontainers-ts-node://' + target);"
+        }
+      }
+    }
+  },
+  "prettier": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "bin": {
+          "prettier": "bin/prettier.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"prettier\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"bin\":{\"prettier\":\"bin/prettier.js\"}}",
+          "index.js": "module.exports = { version: 'fixture-prettier' };",
+          "bin/prettier.js": "const args = process.argv.slice(2); if (args.includes('--write')) console.log('prettier fixture wrote ' + args.filter((arg) => !arg.startsWith('-')).join(',')); else console.log('All matched files use Prettier fixture');"
+        }
+      }
+    }
+  },
+  "eslint": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "bin": {
+          "eslint": "bin/eslint.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"eslint\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"bin\":{\"eslint\":\"bin/eslint.js\"}}",
+          "index.js": "module.exports = { version: 'fixture-eslint' };",
+          "bin/eslint.js": "console.log('eslint fixture passed ' + process.argv.slice(2).join(' '));"
+        }
+      }
+    }
+  },
+  "vitest": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "bin": {
+          "vitest": "bin/vitest.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"vitest\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"bin\":{\"vitest\":\"bin/vitest.js\"}}",
+          "index.js": "module.exports = { version: 'fixture-vitest' };",
+          "bin/vitest.js": "console.log('vitest fixture passed');"
+        }
+      }
+    }
+  },
+  "jest": {
+    "versions": {
+      "1.0.0": {
+        "main": "index.js",
+        "bin": {
+          "jest": "bin/jest.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"jest\",\"version\":\"1.0.0\",\"main\":\"index.js\",\"bin\":{\"jest\":\"bin/jest.js\"}}",
+          "index.js": "module.exports = { version: 'fixture-jest' };",
+          "bin/jest.js": "if (process.argv.includes('--version')) console.log('jest fixture 1.0.0'); else console.log('jest fixture passed');"
+        }
+      }
+    }
+  },
   "vite": {
     "versions": {
       "5.0.0": {
@@ -57,6 +206,78 @@
           "lib/main.js": "throw new Error('native esbuild should be adapted');",
           "bin/esbuild": "throw new Error('native esbuild bin should be adapted');",
           "install.js": "throw new Error('native esbuild install should be skipped');"
+        }
+      }
+    }
+  },
+  "chalk": {
+    "versions": {
+      "5.0.0": {
+        "main": "source/index.js",
+        "exports": "./source/index.js",
+        "files": {
+          "package.json": "{\"name\":\"chalk\",\"version\":\"5.0.0\",\"type\":\"module\",\"exports\":\"./source/index.js\"}",
+          "source/index.js": "export function green(value) { return `\\u001b[32m${String(value)}\\u001b[39m`; }\nexport function bold(value) { return `\\u001b[1m${String(value)}\\u001b[22m`; }\nconst chalk = Object.assign((value) => String(value), { green, bold, supportsColor: { level: 1 } });\nexport default chalk;\n"
+        }
+      }
+    }
+  },
+  "commander": {
+    "versions": {
+      "12.0.0": {
+        "main": "index.js",
+        "files": {
+          "package.json": "{\"name\":\"commander\",\"version\":\"12.0.0\",\"main\":\"index.js\"}",
+          "index.js": "class Command {\n  constructor() { this._options = []; this._values = {}; }\n  option(flags) {\n    const long = String(flags).split(/[ ,|]+/).find((part) => part.startsWith('--'));\n    if (long) {\n      const name = long.replace(/^--/, '').replace(/[ <[].*$/, '').replace(/-([a-z])/g, (_, char) => char.toUpperCase());\n      this._options.push({ long: '--' + long.replace(/^--/, '').replace(/[ <[].*$/, ''), name });\n    }\n    return this;\n  }\n  parse(argv = process.argv) {\n    for (let index = 2; index < argv.length; index++) {\n      const arg = argv[index];\n      const option = this._options.find((entry) => arg === entry.long || arg.startsWith(entry.long + '='));\n      if (!option) continue;\n      this._values[option.name] = arg.includes('=') ? arg.slice(arg.indexOf('=') + 1) : argv[++index];\n    }\n    return this;\n  }\n  opts() { return { ...this._values }; }\n}\nmodule.exports = { Command, program: new Command() };\n"
+        }
+      }
+    }
+  },
+  "debug": {
+    "versions": {
+      "4.3.0": {
+        "main": "index.js",
+        "files": {
+          "package.json": "{\"name\":\"debug\",\"version\":\"4.3.0\",\"main\":\"index.js\"}",
+          "index.js": "const util = require('node:util');\nfunction namespaceEnabled(namespace) {\n  const pattern = process.env.DEBUG || '';\n  return pattern.split(/[ ,]+/).filter(Boolean).some((entry) => entry === '*' || entry === namespace || (entry.endsWith('*') && namespace.startsWith(entry.slice(0, -1))));\n}\nmodule.exports = function createDebug(namespace) {\n  function debug(...args) {\n    if (!debug.enabled) return;\n    process.stderr.write(namespace + ' ' + util.format(...args) + '\\n');\n  }\n  Object.defineProperty(debug, 'enabled', { enumerable: true, get: () => namespaceEnabled(namespace) });\n  debug.namespace = namespace;\n  return debug;\n};\n"
+        }
+      }
+    }
+  },
+  "dotenv": {
+    "versions": {
+      "16.0.0": {
+        "main": "lib/main.js",
+        "files": {
+          "package.json": "{\"name\":\"dotenv\",\"version\":\"16.0.0\",\"main\":\"lib/main.js\"}",
+          "lib/main.js": "const fs = require('node:fs');\nfunction parse(source) {\n  const output = {};\n  for (const line of String(source).split(/\\r?\\n/)) {\n    const match = /^\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*)?\\s*$/.exec(line);\n    if (!match) continue;\n    output[match[1]] = (match[2] || '').replace(/^['\"]|['\"]$/g, '');\n  }\n  return output;\n}\nfunction config(options = {}) {\n  const parsed = parse(fs.readFileSync(options.path || '.env', 'utf8'));\n  for (const [key, value] of Object.entries(parsed)) if (process.env[key] === undefined) process.env[key] = value;\n  return { parsed };\n}\nmodule.exports = { parse, config };\n"
+        }
+      }
+    }
+  },
+  "undici": {
+    "versions": {
+      "6.0.0": {
+        "main": "index.js",
+        "files": {
+          "package.json": "{\"name\":\"undici\",\"version\":\"6.0.0\",\"main\":\"index.js\"}",
+          "index.js": "module.exports = {\n  fetch: function fetch(input, ...args) { return globalThis.fetch(input, ...args); },\n  Headers: globalThis.Headers,\n  Request: globalThis.Request,\n  Response: globalThis.Response,\n  FormData: globalThis.FormData\n};\n"
+        }
+      }
+    }
+  },
+  "yargs": {
+    "versions": {
+      "17.0.0": {
+        "main": "index.js",
+        "exports": {
+          ".": "./index.js",
+          "./helpers": "./helpers/index.js"
+        },
+        "files": {
+          "package.json": "{\"name\":\"yargs\",\"version\":\"17.0.0\",\"type\":\"module\",\"exports\":{\".\":\"./index.js\",\"./helpers\":\"./helpers/index.js\"}}",
+          "index.js": "export default function yargs(args = []) {\n  const options = new Map();\n  return {\n    option(name, config = {}) { options.set(name, config); return this; },\n    parse() {\n      const output = { _: [] };\n      for (let index = 0; index < args.length; index++) {\n        const arg = args[index];\n        if (!arg.startsWith('--')) { output._.push(arg); continue; }\n        const key = arg.slice(2);\n        output[key] = args[index + 1] && !args[index + 1].startsWith('--') ? args[++index] : true;\n      }\n      return output;\n    }\n  };\n}\n",
+          "helpers/index.js": "export function hideBin(argv) { return argv.slice(2); }\n"
         }
       }
     }

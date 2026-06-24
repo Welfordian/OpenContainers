@@ -1,0 +1,11 @@
+[
+  { "command": "npm install" },
+  { "command": "npm run build" },
+  { "command": "npm run-script lint" },
+  { "command": "npm run format" },
+  { "command": "npm t" },
+  { "command": "npm run tsx" },
+  { "command": "npm run ts-node" },
+  { "command": "npx jest --version" },
+  { "command": "node dist/cli.js" }
+]

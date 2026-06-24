@@ -1,6 +1,16 @@
 import { EventEmitter } from "../../runtime-node/src/builtins/events.js";
 import { OutputStream } from "./OutputStream.js";
 
+const SIGNAL_NUMBERS = new Map([
+  [1, "SIGHUP"],
+  [2, "SIGINT"],
+  [3, "SIGQUIT"],
+  [6, "SIGABRT"],
+  [9, "SIGKILL"],
+  [14, "SIGALRM"],
+  [15, "SIGTERM"]
+]);
+
 export class VirtualProcess extends EventEmitter {
   constructor(descriptor) {
     super();
@@ -42,8 +52,38 @@ export class VirtualProcess extends EventEmitter {
     this.finish(1);
   }
 
-  kill(signal = "SIGTERM") {
-    this.descriptor.status = "killed";
-    this.finish(signal === "SIGKILL" ? 137 : 143, signal);
+  failToSpawn(error, code = -2) {
+    if (this.exitCode !== null) return;
+    this.exitCode = code;
+    this.signalCode = null;
+    this.descriptor.status = "exited";
+    if (this.listenerCount("error") > 0) this.emit("error", error);
+    this.emit("spawn-failure-close", code, null);
+    this.#resolveCompleted({
+      pid: this.pid,
+      status: code,
+      signal: null,
+      stdout: this.stdout.toBuffer(),
+      stderr: this.stderr.toBuffer()
+    });
   }
+
+  kill(signal = "SIGTERM") {
+    const normalizedSignal = normalizeVirtualSignal(signal);
+    this.descriptor.status = "killed";
+    this.finish(signalExitCode(normalizedSignal), normalizedSignal);
+  }
+}
+
+function normalizeVirtualSignal(signal) {
+  if (signal === undefined || signal === null) return "SIGTERM";
+  if (typeof signal === "number" && SIGNAL_NUMBERS.has(signal)) return SIGNAL_NUMBERS.get(signal);
+  return String(signal);
+}
+
+function signalExitCode(signal) {
+  for (const [number, name] of SIGNAL_NUMBERS) {
+    if (name === signal) return 128 + number;
+  }
+  return 143;
 }

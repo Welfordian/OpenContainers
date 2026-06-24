@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "fixture": "fs-watch",
+  "category": "filesystem",
+  "packages": [],
+  "commands": ["npm run test"],
+  "expectedOutputContains": ["change:watched.txt"],
+  "previewAssertions": false,
+  "requiredPermissions": ["fileSystemWatch"]
+}

@@ -550,15 +550,15 @@ installBufferStatics(RuntimeBuffer, BUFFER_STATIC_METHODS, {
 });
 if (typeof globalThis.Buffer === "undefined") globalThis.Buffer = RuntimeBuffer;
 
-export const INSPECT_MAX_BYTES = 50;
-export const kMaxLength = 0x7fffffff;
+export let INSPECT_MAX_BYTES = 50;
+export const kMaxLength = Number.MAX_SAFE_INTEGER;
 export const kStringMaxLength = 0x1fffffe8;
-export const constants = {
-  MAX_LENGTH: kMaxLength,
-  MAX_STRING_LENGTH: kStringMaxLength
-};
+export const constants = createBufferConstants();
 
 const BLOB_CHUNKS = Symbol("opencontainers.blobChunks");
+const OBJECT_URL_REGISTRY = new Map();
+let objectUrlCounter = 0;
+let objectUrlRegistryInstalled = false;
 
 function normalizeBlobParts(parts) {
   const chunks = [];
@@ -625,6 +625,8 @@ export const File = globalThis.File ?? class OpenContainersFile extends Blob {
   }
 };
 
+installObjectUrlRegistry();
+
 export function atob(value) {
   return bytesToBinaryString(base64ToBytes(String(value)));
 }
@@ -634,37 +636,127 @@ export function btoa(value) {
 }
 
 export function isAscii(input) {
-  return OpenContainersBuffer.from(input).every(byte => byte <= 0x7f);
+  return normalizeBufferValidationInput(input).every(byte => byte <= 0x7f);
 }
 
-export function isUtf8(_input) {
-  return true;
+export function isUtf8(input) {
+  const bytes = normalizeBufferValidationInput(input);
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export function transcode(source, _fromEncoding, toEncoding) {
   return RuntimeBuffer.from(RuntimeBuffer.from(source).toString(), toEncoding);
 }
 
+export function resolveObjectURL(id) {
+  if (typeof id !== "string") return undefined;
+  return OBJECT_URL_REGISTRY.get(id);
+}
+
 const bufferBuiltin = {
   Buffer: RuntimeBuffer,
-  SlowBuffer: RuntimeBuffer.alloc,
-  Blob,
-  File,
-  atob,
-  btoa,
-  constants,
-  INSPECT_MAX_BYTES,
+  transcode,
+  isUtf8,
+  isAscii,
   kMaxLength,
   kStringMaxLength,
-  isAscii,
-  isUtf8,
-  transcode,
-  OpenContainersBuffer
+  btoa,
+  atob,
+  constants,
+  INSPECT_MAX_BYTES,
+  Blob,
+  resolveObjectURL,
+  File,
 };
 
-bufferBuiltin.default = bufferBuiltin;
+Object.defineProperty(bufferBuiltin, "constants", {
+  enumerable: true,
+  configurable: false,
+  writable: false,
+  value: constants
+});
+Object.defineProperty(bufferBuiltin, "INSPECT_MAX_BYTES", {
+  enumerable: true,
+  configurable: true,
+  get() {
+    return INSPECT_MAX_BYTES;
+  },
+  set(value) {
+    INSPECT_MAX_BYTES = value;
+  }
+});
 
 export default bufferBuiltin;
+
+function createBufferConstants() {
+  const values = {
+    MAX_LENGTH: kMaxLength,
+    MAX_STRING_LENGTH: kStringMaxLength
+  };
+  const result = {};
+  for (const [key, value] of Object.entries(values)) {
+    Object.defineProperty(result, key, {
+      enumerable: true,
+      configurable: false,
+      writable: false,
+      value
+    });
+  }
+  return result;
+}
+
+function normalizeBufferValidationInput(input) {
+  if (input instanceof ArrayBuffer || (typeof SharedArrayBuffer === "function" && input instanceof SharedArrayBuffer)) {
+    return new Uint8Array(input);
+  }
+  if (ArrayBuffer.isView(input) && !(input instanceof DataView)) {
+    return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+  }
+  throw createBufferInvalidInputError(input);
+}
+
+function createBufferInvalidInputError(input) {
+  const received = input === null
+    ? "null"
+    : typeof input === "object"
+      ? `an instance of ${input?.constructor?.name ?? "Object"}`
+      : `type ${typeof input}`;
+  return Object.assign(
+    new TypeError(`The "input" argument must be an instance of ArrayBuffer, Buffer, or TypedArray. Received ${received}`),
+    { code: "ERR_INVALID_ARG_TYPE" }
+  );
+}
+
+function installObjectUrlRegistry() {
+  if (objectUrlRegistryInstalled || typeof globalThis.URL !== "function") return;
+  objectUrlRegistryInstalled = true;
+
+  const originalCreateObjectURL = typeof globalThis.URL.createObjectURL === "function"
+    ? globalThis.URL.createObjectURL.bind(globalThis.URL)
+    : undefined;
+  const originalRevokeObjectURL = typeof globalThis.URL.revokeObjectURL === "function"
+    ? globalThis.URL.revokeObjectURL.bind(globalThis.URL)
+    : undefined;
+
+  globalThis.URL.createObjectURL = function createObjectURL(object) {
+    const id = originalCreateObjectURL
+      ? originalCreateObjectURL(object)
+      : `blob:opencontainers:${++objectUrlCounter}`;
+    if (object instanceof Blob) OBJECT_URL_REGISTRY.set(id, object);
+    return id;
+  };
+
+  globalThis.URL.revokeObjectURL = function revokeObjectURL(id) {
+    OBJECT_URL_REGISTRY.delete(String(id));
+    if (originalRevokeObjectURL) return originalRevokeObjectURL(id);
+    return undefined;
+  };
+}
 
 function bytesToBase64(bytes) {
   let binary = "";
